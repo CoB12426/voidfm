@@ -18,13 +18,17 @@ fi
 
 mkdir -p "$MODELS_DIR"
 
-if [[ ! -f "$MODELS_DIR/s2-pro-q4_k_m.gguf" ]] || [[ ! -f "$MODELS_DIR/tokenizer.json" ]] || [[ ! -x "$MODELS_DIR/s2" ]]; then
-  echo "[ERROR] Missing required model files in $MODELS_DIR"
-  echo "  - s2 (executable)"
-  echo "  - s2-pro-q4_k_m.gguf"
-  echo "  - tokenizer.json"
-  echo "Please place them and run again."
-  exit 1
+if grep -Eq '^\s*mode\s*=\s*"subprocess"' "$HOST_DIR/config.toml"; then
+  if [[ ! -f "$MODELS_DIR/s2-pro-q4_k_m.gguf" ]] || [[ ! -f "$MODELS_DIR/tokenizer.json" ]] || [[ ! -x "$MODELS_DIR/s2" ]]; then
+    echo "[ERROR] TTS mode is subprocess, but required files are missing in $MODELS_DIR"
+    echo "  - s2 (Linux executable)"
+    echo "  - s2-pro-q4_k_m.gguf"
+    echo "  - tokenizer.json"
+    echo "Please place them and run again, or switch mode to \"http\" in config.toml."
+    exit 1
+  fi
+else
+  echo "[INFO] TTS mode is not subprocess. Skipping local model file checks."
 fi
 
 cd "$ROOT_DIR"

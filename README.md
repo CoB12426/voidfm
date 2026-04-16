@@ -6,8 +6,16 @@
 準備が面倒な人向けの最短導線です。
 
 1. GitHub Releases から APK をダウンロードして Android にインストール
-2. PCで `./scripts/easy_up.sh` を実行（Dockerでhost起動）
+2. PCで easy起動スクリプトを実行（Dockerでhost起動）
 3. アプリ設定で host の IP と port=8000 を入力して ON AIR
+
+Linux:
+- `./scripts/easy_up.sh`
+
+Windows (PowerShell):
+- `powershell -ExecutionPolicy Bypass -File .\scripts\easy_up.ps1`
+
+Windowsで手軽に試す場合は、`mydj-host/config.toml` の `tts.mode = "http"` を推奨します。
 
 詳細は [EASY_RELEASE.md](EASY_RELEASE.md) を参照。
 
@@ -26,6 +34,7 @@
 
 ## 3) 必要要件
 - Linux
+- Windows 10/11（かんたん版）
 - Python 3.10+
 - Flutter 3.x
 - （任意）Ollama または互換 LLM API
