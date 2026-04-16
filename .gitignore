@@ -1,0 +1,57 @@
+# ---- OS / Editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+voidfm/
+.pytest_cache/
+.mypy_cache/
+
+# ---- Flutter / Dart ----
+mydj_client/.dart_tool/
+mydj_client/.packages
+mydj_client/build/
+mydj_client/.flutter-plugins
+mydj_client/.flutter-plugins-dependencies
+mydj_client/android/.gradle/
+mydj_client/android/app/debug/
+mydj_client/android/app/profile/
+mydj_client/android/app/release/
+
+# ---- Logs ----
+*.log
+logs/
+.logs/
+
+# ---- Local configs / secrets ----
+mydj-host/config.toml
+*.local.toml
+.env
+.env.*
+
+# ---- Large model/artifact files (not for Git) ----
+*.gguf
+*.safetensors
+*.pt
+*.pth
+*.bin
+tokenizer.json
+checkpoints/
+fish-speech/checkpoints/
+
+# ---- External source trees (keep as separate upstream repos) ----
+fish-speech/
+s2.cpp/
+
+# ---- Optional caches ----
+.cache/

@@ -1,0 +1,25 @@
+[server]
+port = 8000
+host = "0.0.0.0"
+
+[llm]
+ollama_url = "http://localhost:11434"
+default_model = "llama3.2"
+
+[tts]
+# mode = "http"  で fish-speech の HTTP サーバーを使う
+# mode = "subprocess" で s2.cpp バイナリを直接呼び出す
+mode = "subprocess"
+
+# mode = "http" のとき使用
+fish_speech_url = "http://localhost:8080"
+default_speaker = "default"
+
+# mode = "subprocess" のとき使用
+s2_binary = "/home/aki/Projects/VoidFM/s2.cpp/build/s2"
+s2_model   = "/home/aki/Projects/VoidFM/s2-pro-q4_k_m.gguf"
+s2_tokenizer = "/home/aki/Projects/VoidFM/tokenizer.json"
+
+[dj]
+default_language = "en"
+default_talk_length = "medium"   # short / medium / long
