@@ -1,0 +1,30 @@
+# GPU 使用時のオーバーライドファイル
+# 使い方: docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
+#
+# 前提:
+#   - NVIDIA GPU が搭載されていること
+#   - Windows: Docker Desktop + WSL2 バックエンド + NVIDIA ドライバー (470 以降)
+#   - Linux:   NVIDIA Container Toolkit がインストールされていること
+#     (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+
+services:
+  fish-speech:
+    build:
+      args:
+        BACKEND: cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

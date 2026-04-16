@@ -58,13 +58,24 @@ cd VoidFM
 > **初回は Docker のビルドに 20〜30 分かかります。**  
 > `[OK] All services started` が表示されれば完了です。
 
-### ステップ 4：Ollama モデルをダウンロード（初回のみ）
+### ステップ 4：モデルをダウンロード（初回のみ）
 
-起動後、**別のターミナル**で以下を実行してください（数 GB・数分かかります）：
+起動後、**別のターミナル**で以下を2つ実行してください（合計で数GB・数分〜十数分かかります）。
+
+**① LLM モデル（Ollama）：**
 
 ```bash
 docker exec -it voidfm-ollama ollama pull llama3.2
 ```
+
+**② TTS モデル（fish-speech）：**
+
+```bash
+pip install huggingface_hub
+python -c "from huggingface_hub import snapshot_download; snapshot_download('fishaudio/fish-speech-1.5', local_dir='fish-speech/checkpoints/s2-pro')"
+```
+
+> ダウンロード後は必ず `docker restart voidfm-fish-speech` でコンテナを再起動してください。
 
 ### ステップ 5：アプリで接続
 
@@ -85,6 +96,32 @@ powershell -ExecutionPolicy Bypass -File .\scripts\easy_down_all.ps1
 # Linux
 ./scripts/easy_down_all.sh
 ```
+
+---
+
+## GPU を使う（オプション）
+
+デフォルトは CPU 動作です。NVIDIA GPU がある場合は以下の手順で有効化できます。
+
+**前提：**
+- NVIDIA GPU が搭載されていること
+- **Windows**：Docker Desktop + WSL2 バックエンド + NVIDIA ドライバー（470 以降）
+- **Linux**：[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) がインストールされていること
+
+**起動コマンド（GPU あり）：**
+
+```powershell
+# Windows
+docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
+```
+
+```bash
+# Linux
+docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
+```
+
+> fish-speech と Ollama の両方が GPU を使用します。  
+> CPU の場合と比べてトーク生成が大幅に速くなります。
 
 ---
 
