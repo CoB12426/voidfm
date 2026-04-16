@@ -17,6 +17,8 @@
 - Linux: `./scripts/easy_down_all.sh`
 - Windows (PowerShell): `powershell -ExecutionPolicy Bypass -File .\scripts\easy_down_all.ps1`
 
+`fish-speech/` が無い場合、`easy_up_all` は初回に自動 clone を試みます（git 必須）。
+
 `tts.mode = "http"` の場合、easyスクリプトは `fish-speech` の server プロファイルも自動起動します。
 
 通常の `easy_up` は Ollama を自動起動しません（到達性チェックのみ）。

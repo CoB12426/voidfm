@@ -35,6 +35,8 @@ Windows (PowerShell):
 - Linux: `./scripts/easy_down_all.sh`
 - Windows: `powershell -ExecutionPolicy Bypass -File .\scripts\easy_down_all.ps1`
 
+`fish-speech/` が無い場合、`easy_up_all` は初回に自動で clone を試みます（git 必須）。
+
 ## 1) ライセンス重要事項（TTSモデル）
 - Fish Audio由来のモデル/素材（以下 Fish Audio Materials）は、
   **Research / Non-Commercial 用途のみ無償利用可能**です。

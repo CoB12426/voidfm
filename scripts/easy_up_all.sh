@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST_DIR="$ROOT_DIR/mydj-host"
+FISH_DIR="$ROOT_DIR/fish-speech"
 CONFIG_PATH="$HOST_DIR/config.toml"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -13,6 +14,17 @@ fi
 if [[ ! -f "$CONFIG_PATH" ]]; then
   echo "[INFO] config.toml not found. Creating from all-in-one example..."
   cp "$HOST_DIR/config.allinone.toml.example" "$CONFIG_PATH"
+fi
+
+if [[ ! -d "$FISH_DIR" ]]; then
+  if command -v git >/dev/null 2>&1; then
+    echo "[INFO] fish-speech not found. Cloning..."
+    git -C "$ROOT_DIR" clone https://github.com/fishaudio/fish-speech.git fish-speech
+  else
+    echo "[ERROR] fish-speech directory not found and git command is unavailable."
+    echo "        Install git or place fish-speech/ manually."
+    exit 1
+  fi
 fi
 
 cd "$ROOT_DIR"
