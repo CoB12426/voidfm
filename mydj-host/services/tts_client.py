@@ -35,17 +35,18 @@ async def synthesize_speech(
 async def _synthesize_http(cfg: dict, text: str, dj_voice: str = "default") -> bytes:
     fish_speech_url: str = cfg["tts"]["fish_speech_url"]
     speaker: str = dj_voice if dj_voice != "default" else cfg["tts"].get("default_speaker", "default")
+    audio_format: str = cfg["tts"].get("audio_format", "mp3")
 
     url = f"{fish_speech_url.rstrip('/')}/v1/tts"
     payload: dict = {
         "text": text,
-        "format": "wav",
+        "format": audio_format,
         "streaming": False,
     }
     if speaker and speaker != "default":
         payload["reference_id"] = speaker
 
-    logger.info("TTS HTTP: speaker=%s, text_length=%d", speaker, len(text))
+    logger.info("TTS HTTP: speaker=%s, format=%s, text_length=%d", speaker, audio_format, len(text))
     
     client = llm_client._get_http_client()
     for attempt in range(2):  # 最大2回リトライ
@@ -62,7 +63,7 @@ async def _synthesize_http(cfg: dict, text: str, dj_voice: str = "default") -> b
                 raise
 
     content_type = response.headers.get("content-type", "")
-    if "audio" not in content_type and "wav" not in content_type and "octet-stream" not in content_type:
+    if "audio" not in content_type and "octet-stream" not in content_type:
         raise ValueError(f"TTS response is not audio. content-type={content_type!r}")
 
     logger.info("TTS HTTP response bytes: %d", len(response.content))

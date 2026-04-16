@@ -85,17 +85,17 @@ class AudioService {
     }
   }
 
-  /// DJ トーク音声 (WAV) を再生する。完了まで await する。
+  /// DJ トーク音声（MP3 / WAV）を再生する。完了まで await する。
   /// 音楽は事前に pauseMusic() で停止済みであること。
-  Future<void> playTalk(Uint8List wavBytes) async {
-    debugPrint('AudioService: playTalk start (${wavBytes.length} bytes)');
+  Future<void> playTalk(Uint8List wavBytes, {String contentType = 'audio/mpeg'}) async {
+    debugPrint('AudioService: playTalk start (${wavBytes.length} bytes, $contentType)');
     if (_player.playing) {
       debugPrint('AudioService: playTalk — stopping current playback');
       await _player.stop();
     }
     _loadedAssetPath = null; // アセットプリロードをクリア
     try {
-      final source = _BytesAudioSource(wavBytes);
+      final source = _BytesAudioSource(wavBytes, contentType: contentType);
       debugPrint('AudioService: playTalk — setAudioSource()');
       await _player.setAudioSource(source);
       debugPrint('AudioService: playTalk — setAudioSource done, duration=${_player.duration}');
@@ -180,8 +180,11 @@ class AudioService {
 /// just_audio 用のインメモリ AudioSource。
 class _BytesAudioSource extends StreamAudioSource {
   final Uint8List _bytes;
+  final String _contentType;
 
-  _BytesAudioSource(this._bytes) : super(tag: 'dj-talk');
+  _BytesAudioSource(this._bytes, {String contentType = 'audio/mpeg'})
+      : _contentType = contentType,
+        super(tag: 'dj-talk');
 
   @override
   Future<StreamAudioResponse> request([int? start, int? end]) async {
@@ -192,7 +195,7 @@ class _BytesAudioSource extends StreamAudioSource {
       contentLength: e - s,
       offset: s,
       stream: Stream.value(_bytes.sublist(s, e)),
-      contentType: 'audio/wav',
+      contentType: _contentType,
     );
   }
 }

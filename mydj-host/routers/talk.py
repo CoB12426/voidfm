@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import random
 import re
+import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from models.schemas import TalkRequest
@@ -42,7 +44,6 @@ def _postprocess_talk_text(text: str, language: str) -> str:
     if not t:
         return "次の曲をどうぞ。" if language == "ja" else "Here comes the next track."
 
-    # 末尾が途中で切れたようなケースを避けるため、最低限の終端句読点を補う
     if language == "ja":
         if t[-1] not in "。！？":
             t = f"{t}。"
@@ -54,78 +55,111 @@ def _postprocess_talk_text(text: str, language: str) -> str:
 
 
 @router.post("/talk")
-async def talk(request: TalkRequest) -> StreamingResponse:
-    logger.info("Talk request received: current_track=%s, previous_track=%s",
-                request.current_track.title, 
-                request.previous_track.title if request.previous_track else None)
-    
+async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
+    req_id = format(random.randint(0, 0xFFFF), "04x")
+    t0 = time.perf_counter()
+
     cfg = get_config()
 
-    # preferences とデフォルト設定をマージ
-    prefs = request.preferences
-    llm_model  = (prefs.llm_model   if prefs and prefs.llm_model   else None) or cfg["llm"]["default_model"]
-    language   = (prefs.language    if prefs and prefs.language    else None) or cfg["dj"]["default_language"]
-    talk_length = (prefs.talk_length if prefs and prefs.talk_length else None) or cfg["dj"]["default_talk_length"]
-    dj_voice   = (prefs.dj_voice    if prefs and prefs.dj_voice    else None) or cfg["dj"].get("default_voice", "default")
+    prefs = body.preferences
+    llm_model   = (prefs.llm_model    if prefs and prefs.llm_model    else None) or cfg["llm"]["default_model"]
+    language    = (prefs.language     if prefs and prefs.language     else None) or cfg["dj"]["default_language"]
+    talk_length = (prefs.talk_length  if prefs and prefs.talk_length  else None) or cfg["dj"]["default_talk_length"]
+    dj_voice    = (prefs.dj_voice     if prefs and prefs.dj_voice     else None) or cfg["dj"].get("default_voice", "default")
     weather_city = (prefs.weather_city if prefs and prefs.weather_city else None)
-    personality = (prefs.personality if prefs and prefs.personality else None)
+    personality  = (prefs.personality  if prefs and prefs.personality  else None)
 
-    # パラメータの検証
     valid_languages = ["ja", "en"]
     if language not in valid_languages:
-        logger.warning("Invalid language: %s, using default", language)
         language = cfg["dj"]["default_language"]
-    
+
     valid_lengths = ["short", "medium", "long"]
     if talk_length not in valid_lengths:
-        logger.warning("Invalid talk_length: %s, using default", talk_length)
         talk_length = cfg["dj"]["default_talk_length"]
 
-    # プロンプト構築
+    logger.info(
+        "[%s] ← track=%r  prev=%r  lang=%s  length=%s",
+        req_id,
+        body.current_track.title,
+        body.previous_track.title if body.previous_track else None,
+        language,
+        talk_length,
+    )
+
+    # ── プロンプト構築 ────────────────────────────────────────────────────
     try:
         prompt = await prompt_builder.build_prompt(
-            current_track=request.current_track,
-            previous_track=request.previous_track,
-            next_track=request.next_track,
+            current_track=body.current_track,
+            previous_track=body.previous_track,
+            next_track=body.next_track,
             language=language,
             talk_length=talk_length,
             personality=personality,
-            is_mid_song=request.is_mid_song,
+            is_mid_song=body.is_mid_song,
             cfg=cfg,
             weather_city=weather_city,
         )
     except Exception as exc:
-        logger.exception("Failed to build prompt")
+        logger.exception("[%s] ✗ prompt build failed", req_id)
         raise HTTPException(status_code=500, detail=f"プロンプト構築失敗: {exc}") from exc
 
-    # LLM によるトークテキスト生成
+    # ── LLM テキスト生成 ─────────────────────────────────────────────────
+    t_llm_start = time.perf_counter()
     try:
-        logger.debug("Generating text with model: %s", llm_model)
         talk_text = await llm_client.generate_text(
             ollama_url=cfg["llm"]["ollama_url"],
             model=llm_model,
             prompt=prompt,
         )
         talk_text = _postprocess_talk_text(talk_text, language)
-        logger.info("Generated talk text: %d chars", len(talk_text))
     except Exception as exc:
-        logger.exception("LLM generation failed")
+        elapsed = time.perf_counter() - t_llm_start
+        logger.error("[%s] ✗ LLM failed (%.1fs): %s", req_id, elapsed, exc)
         raise HTTPException(status_code=500, detail=f"LLM 生成失敗: {exc}") from exc
 
-    # TTS による音声合成
+    t_llm_done = time.perf_counter()
+    logger.info(
+        '[%s] LLM %.1fs → "%s..." (%d chars)',
+        req_id,
+        t_llm_done - t_llm_start,
+        talk_text[:40].replace("\n", " "),
+        len(talk_text),
+    )
+
+    # ── クライアント切断チェック ──────────────────────────────────────────
+    if await http_request.is_disconnected():
+        logger.info("[%s] ✗ client disconnected after LLM — aborting TTS", req_id)
+        raise HTTPException(status_code=499, detail="Client disconnected")
+
+    # ── TTS 音声合成 ──────────────────────────────────────────────────────
+    t_tts_start = time.perf_counter()
     try:
-        logger.debug("Synthesizing speech with voice: %s", dj_voice)
-        wav_bytes = await tts_client.synthesize_speech(
+        audio_bytes = await tts_client.synthesize_speech(
             cfg=cfg,
             text=talk_text,
             dj_voice=dj_voice,
         )
     except Exception as exc:
-        logger.exception("TTS synthesis failed")
+        elapsed = time.perf_counter() - t_tts_start
+        logger.error("[%s] ✗ TTS failed (%.1fs): %s", req_id, elapsed, exc)
         raise HTTPException(status_code=500, detail=f"TTS 生成失敗: {exc}") from exc
 
-    logger.info("Returning WAV: %d bytes", len(wav_bytes))
+    t_tts_done = time.perf_counter()
+    audio_format = cfg["tts"].get("audio_format", "mp3")
+    logger.info(
+        "[%s] TTS %.1fs → %d bytes (%s)",
+        req_id,
+        t_tts_done - t_tts_start,
+        len(audio_bytes),
+        audio_format,
+    )
+    logger.info("[%s] DONE %.1fs total", req_id, t_tts_done - t0)
+
+    content_type = "audio/mpeg" if audio_format == "mp3" else \
+                   "audio/ogg"  if audio_format == "opus" else \
+                   "audio/wav"
+
     return StreamingResponse(
-        content=iter([wav_bytes]),
-        media_type="audio/wav",
+        content=iter([audio_bytes]),
+        media_type=content_type,
     )

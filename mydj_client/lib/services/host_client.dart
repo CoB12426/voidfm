@@ -9,61 +9,84 @@ class HostClient {
   final String hostAddress;
   final int port;
 
-  HostClient({required this.hostAddress, required this.port});
+  /// キャンセル可能なリクエストを発行するには外部から Client を渡す。
+  /// null の場合は使い捨て Client を生成する。
+  final http.Client? _client;
+
+  HostClient({
+    required this.hostAddress,
+    required this.port,
+    http.Client? client,
+  }) : _client = client;
 
   Uri _uri(String path) => Uri.parse('http://$hostAddress:$port$path');
 
   /// GET /ping — 疎通確認。成功なら true。
   Future<bool> ping() async {
-    final response = await http
-        .get(_uri('/ping'))
-        .timeout(const Duration(seconds: 5));
-    return response.statusCode == 200;
+    final client = http.Client();
+    try {
+      final response = await client
+          .get(_uri('/ping'))
+          .timeout(const Duration(seconds: 5));
+      return response.statusCode == 200;
+    } finally {
+      client.close();
+    }
   }
 
   /// GET /config — サーバー設定を取得。
   Future<HostConfig> fetchConfig() async {
-    final response = await http
-        .get(_uri('/config'))
-        .timeout(const Duration(seconds: 10));
-    if (response.statusCode != 200) {
-      throw Exception('fetchConfig failed: ${response.statusCode}');
+    final client = http.Client();
+    try {
+      final response = await client
+          .get(_uri('/config'))
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        throw Exception('fetchConfig failed: ${response.statusCode}');
+      }
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return HostConfig.fromJson(json);
+    } finally {
+      client.close();
     }
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    return HostConfig.fromJson(json);
   }
 
-  /// POST /talk — DJ トーク音声 (WAV) を取得。
+  /// POST /talk — DJ トーク音声を取得。
   ///
-  /// [currentTrack]  : 次の曲（void talk 後に再生される曲 = song_next）
-  /// [previousTrack] : 直前に終わった曲（= song_current）
-  /// [nextTrack]     : 次の次の曲（song_next の後の曲。省略可）
+  /// [_client] が設定されている場合はそのクライアントを使用する。
+  /// 呼び出し元が [_client].close() を呼ぶことでリクエストをキャンセルできる。
   Future<Uint8List> fetchTalk({
     required TrackInfo currentTrack,
     TrackInfo? previousTrack,
     TrackInfo? nextTrack,
     required DjPreferences preferences,
   }) async {
-    final body = jsonEncode({
-      'current_track':                   currentTrack.toJson(),
-      if (previousTrack != null) 'previous_track': previousTrack.toJson(),
-      if (nextTrack != null)     'next_track':     nextTrack.toJson(),
-      'preferences':             preferences.toJson(),
-    });
+    final client = _client ?? http.Client();
+    final owned = _client == null; // 自前で生成した場合のみ finally でclose
+    try {
+      final body = jsonEncode({
+        'current_track':                   currentTrack.toJson(),
+        if (previousTrack != null) 'previous_track': previousTrack.toJson(),
+        if (nextTrack != null)     'next_track':     nextTrack.toJson(),
+        'preferences':             preferences.toJson(),
+      });
 
-    final response = await http
-        .post(
-          _uri('/talk'),
-          headers: {'Content-Type': 'application/json'},
-          body: body,
-        )
-        .timeout(const Duration(minutes: 10));
+      final response = await client
+          .post(
+            _uri('/talk'),
+            headers: {'Content-Type': 'application/json'},
+            body: body,
+          )
+          .timeout(const Duration(minutes: 10));
 
-    if (response.statusCode != 200) {
-      final detail = _extractDetail(response.body);
-      throw Exception('fetchTalk failed (${response.statusCode}): $detail');
+      if (response.statusCode != 200) {
+        final detail = _extractDetail(response.body);
+        throw Exception('fetchTalk failed (${response.statusCode}): $detail');
+      }
+      return response.bodyBytes;
+    } finally {
+      if (owned) client.close();
     }
-    return response.bodyBytes;
   }
 
   String _extractDetail(String body) {

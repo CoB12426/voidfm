@@ -12,6 +12,8 @@ default_model = "llama3.2"
 mode = "http"
 fish_speech_url = "http://fish-speech:8080"
 default_speaker = "default"
+# 転送フォーマット: mp3（推奨・軽量）/ wav / opus
+audio_format = "mp3"
 
 [dj]
 default_language = "en"

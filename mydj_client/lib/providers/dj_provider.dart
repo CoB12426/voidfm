@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import '../models/track_info.dart';
 import '../models/dj_preferences.dart';
 import '../services/host_client.dart';
@@ -62,6 +63,7 @@ class DjProvider extends ChangeNotifier {
   TrackInfo? _ttsForTrack;       // 生成対象の currentTrack
   TrackInfo? _ttsNextTrack;      // 生成開始時に使った nextTrack
   TrackInfo? _ttsNextNextTrack;  // 生成開始時に使った nextNextTrack
+  http.Client? _ttsHttpClient;   // 進行中リクエストのキャンセル用
 
   // ── 設定 ─────────────────────────────────────────────────────────────
   String        _hostAddress = '';
@@ -393,6 +395,9 @@ class DjProvider extends ChangeNotifier {
   }
 
   void _cancelTts() {
+    // 進行中の HTTP リクエストを強制中断する
+    _ttsHttpClient?.close();
+    _ttsHttpClient    = null;
     _ttsCompleter     = null;
     _ttsForTrack      = null;
     _ttsNextTrack     = null;
@@ -441,7 +446,7 @@ class DjProvider extends ChangeNotifier {
       await Future.delayed(const Duration(milliseconds: 150));
       
       debugPrint('DjProvider: _playVoidTalk — playTalk()');
-      await _audio.playTalk(wavBytes);
+      await _audio.playTalk(wavBytes, contentType: 'audio/mpeg');
       debugPrint('DjProvider: _playVoidTalk — playTalk done');
     } catch (e) {
       debugPrint('DjProvider: _playVoidTalk error: $e');
@@ -463,27 +468,38 @@ class DjProvider extends ChangeNotifier {
     }
   }
 
-  /// ホストへリクエストを送り WAV バイト列を返す（null = 失敗）。
+  /// ホストへリクエストを送り音声バイト列を返す（null = 失敗 or キャンセル）。
   Future<Uint8List?> _generateTts({
     required TrackInfo previousTrack,
     TrackInfo?         currentTrack,
     TrackInfo?         nextTrack,
   }) async {
+    final client = http.Client();
+    _ttsHttpClient = client;
     try {
-      final wav = await HostClient(
+      final bytes = await HostClient(
         hostAddress: _hostAddress,
         port:        _port,
+        client:      client,
       ).fetchTalk(
         previousTrack: previousTrack,
         currentTrack:  currentTrack ?? previousTrack,
         nextTrack:     nextTrack,
         preferences:   _preferences,
       );
-      debugPrint('DjProvider: TTS done (${wav.length} bytes)');
-      return wav;
+      debugPrint('DjProvider: TTS done (${bytes.length} bytes)');
+      return bytes;
+    } on http.ClientException catch (e) {
+      // client.close() によるキャンセル、または接続エラー
+      debugPrint('DjProvider: TTS cancelled or connection error: $e');
+      return null;
     } catch (e) {
       debugPrint('DjProvider: TTS failed: $e');
       return null;
+    } finally {
+      // 自分が登録したクライアントなら解放
+      if (_ttsHttpClient == client) _ttsHttpClient = null;
+      client.close();
     }
   }
 
@@ -513,11 +529,21 @@ class DjProvider extends ChangeNotifier {
     if (!(nextChanged || nextNextChanged)) return; // 同じ情報なら何もしない
 
     if (!_ttsCompleter!.isCompleted) {
-      // 生成中かつ情報が変化 → 新情報で再生成
-      debugPrint('DjProvider: nextTrack changed during generation, restarting TTS'
-          ' (next: $_ttsNextTrack → $track)');
-      _cancelTts();
-      _startTtsGeneration();
+      if (_ttsNextTrack == null) {
+        // 曲変更直後の生成（nextTrack 未取得）に nextTrack 情報が初めて届いた。
+        // 再生成はせず、次回の比較用として記録だけ更新する。
+        // （再生成するとサーバーへのリクエストが曲変更ごとに2回走ってしまう）
+        debugPrint('DjProvider: nextTrack arrived for in-progress generation, '
+            'updating stored value without restart — next="$track"');
+        _ttsNextTrack     = track;
+        _ttsNextNextTrack = nextNext;
+      } else {
+        // すでに nextTrack 情報ありで生成中 → より新しい情報で再生成
+        debugPrint('DjProvider: nextTrack changed during generation, restarting TTS'
+            ' (next: $_ttsNextTrack → $track)');
+        _cancelTts();
+        _startTtsGeneration();
+      }
     }
     // 生成完了済みなら変化があっても使用済みデータを保持（再生成しない）
   }
