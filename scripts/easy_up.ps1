@@ -25,7 +25,7 @@ if ($isSubprocess) {
   $needTokenizer = Join-Path $ModelsDir "tokenizer.json"
 
   if (-not (Test-Path $needS2) -or -not (Test-Path $needModel) -or -not (Test-Path $needTokenizer)) {
-    Write-Error "TTS mode is subprocess, but required files are missing in $ModelsDir`n  - s2 (Linux executable)`n  - s2-pro-q4_k_m.gguf`n  - tokenizer.json`nSet mode=\"http\" in config.toml if you don't use local s2."
+    Write-Error "TTS mode is subprocess, but required files are missing in $ModelsDir`n  - s2 (Linux executable)`n  - s2-pro-q4_k_m.gguf`n  - tokenizer.json`nSet mode=http in config.toml if you do not use local s2."
   }
 }
 else {
