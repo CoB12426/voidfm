@@ -1,0 +1,18 @@
+[server]
+port = 8000
+host = "0.0.0.0"
+
+[llm]
+# all-in-one compose 内のサービス名を参照
+ollama_url = "http://ollama:11434"
+default_model = "llama3.2"
+
+[tts]
+# all-in-one は fish-speech HTTP を使う
+mode = "http"
+fish_speech_url = "http://fish-speech:8080"
+default_speaker = "default"
+
+[dj]
+default_language = "en"
+default_talk_length = "medium"

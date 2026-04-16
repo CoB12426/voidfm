@@ -9,10 +9,18 @@
 - Linux: `./scripts/easy_up.sh`
 - Windows (PowerShell): `powershell -ExecutionPolicy Bypass -File .\scripts\easy_up.ps1`
 
+### 全部まとめて起動（host + fish-speech + ollama）
+- Linux: `./scripts/easy_up_all.sh`
+- Windows (PowerShell): `powershell -ExecutionPolicy Bypass -File .\scripts\easy_up_all.ps1`
+
+停止:
+- Linux: `./scripts/easy_down_all.sh`
+- Windows (PowerShell): `powershell -ExecutionPolicy Bypass -File .\scripts\easy_down_all.ps1`
+
 `tts.mode = "http"` の場合、easyスクリプトは `fish-speech` の server プロファイルも自動起動します。
 
-Ollama は自動起動しません。`llm.ollama_url` 先で別途起動してください。
-（easyスクリプトは到達性チェックのみ行います）
+通常の `easy_up` は Ollama を自動起動しません（到達性チェックのみ）。
+`easy_up_all` は Ollama も含めて起動します。
 
 ### 停止コマンド
 - Linux: `./scripts/easy_down.sh`
