@@ -1,94 +1,141 @@
-# VoidFM (mydj_client + mydj-host)
+# VoidFM
 
-ローカル音楽再生に DJ トークを差し込む実験プロジェクトです。
+ローカルの音楽再生に AI DJ トークを差し込む実験的アプリです。
 
-## 0) かんたん版（Docker + APK + 3ステップ）
-準備が面倒な人向けの最短導線です。
+Android アプリ（`mydj_client`）と PC ホスト（`mydj-host`）の2つで動作します。
 
-1. GitHub Releases から APK をダウンロードして Android にインストール
-2. PCで easy起動スクリプトを実行（Dockerでhost起動）
-3. アプリ設定で host の IP と port=8000 を入力して ON AIR
+```
+Android（音楽再生 + DJ トーク再生）
+    ↕ HTTP
+PC ホスト（LLM でトーク生成 + TTS で音声合成）
+```
 
-Linux:
-- `./scripts/easy_up.sh`
+---
 
-Windows (PowerShell):
-- `powershell -ExecutionPolicy Bypass -File .\scripts\easy_up.ps1`
+## ライセンス重要事項（TTS モデル）
 
-Windowsで手軽に試す場合は、`mydj-host/config.toml` の `tts.mode = "http"` を推奨します。
+Fish Audio 由来のモデル・素材は **Research / Non-Commercial 用途のみ無償利用可能**です。  
+**商用利用には Fish Audio との別途ライセンス契約が必要**です。  
+詳細は [Fish Audio License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) を必ず確認してください。
 
-`tts.mode = "http"` の場合、easyスクリプトは `fish-speech` サーバーも自動起動します。
+---
 
-Ollama は easyスクリプトで自動起動しません（到達性チェックのみ）。
-`llm.ollama_url` の先で別途起動してください。
+## かんたん起動（Windows / Linux + Android）
 
-詳細は [EASY_RELEASE.md](EASY_RELEASE.md) を参照。
+PC と Android が**同じ Wi-Fi に接続**されている必要があります。
 
-### 全部まとめてDockerで起動（host + fish-speech + ollama）
-Linux:
-- `./scripts/easy_up_all.sh`
+### ステップ 1：APK を Android にインストール
 
-Windows (PowerShell):
-- `powershell -ExecutionPolicy Bypass -File .\scripts\easy_up_all.ps1`
+GitHub Releases ページから `voidfm-android-release.apk` をダウンロードしてインストール。
 
-停止:
-- Linux: `./scripts/easy_down_all.sh`
-- Windows: `powershell -ExecutionPolicy Bypass -File .\scripts\easy_down_all.ps1`
+### ステップ 2：PC に必要なソフトをインストール（初回のみ）
 
-`fish-speech/` が無い場合、`easy_up_all` は初回に自動で clone を試みます（git 必須）。
+| ソフト | 入手先 | 備考 |
+|--------|--------|------|
+| Docker Desktop | https://www.docker.com/products/docker-desktop/ | Windows では WSL2 も必要（インストーラーが案内） |
+| Git | https://git-scm.com/ | デフォルト設定で OK |
 
-## 1) ライセンス重要事項（TTSモデル）
-- Fish Audio由来のモデル/素材（以下 Fish Audio Materials）は、
-  **Research / Non-Commercial 用途のみ無償利用可能**です。
-- **商用利用には Fish Audio との別途ライセンス契約が必要**です。
-- 再配布・公開時は、Fish Audioライセンスの配布条件（ライセンス同梱、
-  指定アトリビューション等）を満たしてください。
-- 詳細は[(fish-speech/LICENSE)](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) を必ず確認してください。
+インストール後は **PC を再起動**してください。
 
-## 2) 公開方針
-- このリポジトリには **コードのみ** を含めます。
-- モデル（GGUF / tokenizer / checkpoints）は各自ダウンロードして配置してください。
-- `mydj-host/config.toml` はローカル設定として Git 管理しません。
+### ステップ 3：リポジトリを取得して起動
 
-## 3) 必要要件
-- Linux
-- Windows 10/11（かんたん版）
-- Python 3.10+
-- Flutter 3.x
-- （任意）Ollama または互換 LLM API
-- （かんたん版は Docker 必須）
+**Windows（PowerShell）：**
 
-## 4) 開発者向けクイックスタート
+```powershell
+git clone https://github.com/YOUR_USERNAME/VoidFM.git
+cd VoidFM
+powershell -ExecutionPolicy Bypass -File .\scripts\easy_up_all.ps1
+```
 
-### 初回
-1. Python 仮想環境を作成（`/voidfm`）
-2. `mydj-host/config.toml.example` を `mydj-host/config.toml` にコピー
-3. モデルファイルを配置して `config.toml` のパスを更新
+**Linux：**
 
-### 起動（1コマンド）
-- 全体起動（host + client）
-  - `./scripts/dev_up.sh`
-- host のみ起動
-  - `./scripts/dev_up.sh --host-only`
-- host 停止
-  - `./scripts/dev_down.sh`
+```bash
+git clone https://github.com/YOUR_USERNAME/VoidFM.git
+cd VoidFM
+./scripts/easy_up_all.sh
+```
 
-## 5) モデル配置ルール（例）
+> **初回は Docker のビルドに 20〜30 分かかります。**  
+> `[OK] All services started` が表示されれば完了です。
+
+### ステップ 4：Ollama モデルをダウンロード（初回のみ）
+
+起動後、**別のターミナル**で以下を実行してください（数 GB・数分かかります）：
+
+```bash
+docker exec -it voidfm-ollama ollama pull llama3.2
+```
+
+### ステップ 5：アプリで接続
+
+Android アプリを開き、設定画面で PC の IP アドレスとポート `8000` を入力して ON AIR。
+
+PC の IP アドレスの確認方法：
+- **Windows**：PowerShell で `ipconfig` → 「IPv4 アドレス」
+- **Linux**：ターミナルで `hostname -I`
+
+### 停止
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File .\scripts\easy_down_all.ps1
+```
+
+```bash
+# Linux
+./scripts/easy_down_all.sh
+```
+
+---
+
+## 起動スクリプトの種類
+
+| スクリプト | 起動するもの | 用途 |
+|-----------|-------------|------|
+| `easy_up_all` | mydj-host + fish-speech + Ollama | **推奨。全部 Docker で完結** |
+| `easy_up` | mydj-host のみ | Ollama をすでに別途用意している場合 |
+
+---
+
+## コンポーネント構成
+
+| コンポーネント | 役割 | ポート |
+|-------------|------|-------|
+| `mydj-host` | API サーバー（LLM 呼び出し・TTS 制御） | 8000 |
+| `fish-speech` | TTS（音声合成）サーバー | 8080 |
+| `ollama` | LLM（テキスト生成）サーバー | 11434 |
+
+---
+
+## 公開方針
+
+- このリポジトリには**コードのみ**を含めます
+- モデルファイル（GGUF / tokenizer / checkpoints）は各自ダウンロードして配置してください
+- `mydj-host/config.toml` はローカル設定として Git 管理しません
+
+---
+
+## 開発者向けセットアップ
+
+必要環境：Python 3.10+、Flutter 3.x
+
+```bash
+# 初回
+cp mydj-host/config.toml.example mydj-host/config.toml
+# config.toml を編集してモデルパスを設定
+
+# 起動
+./scripts/dev_up.sh               # host + client
+./scripts/dev_up.sh --host-only   # host のみ
+./scripts/dev_down.sh             # 停止
+```
+
+`tts.mode = "subprocess"` を使う場合のモデルファイル配置：
+
+- `s2.cpp/build/s2`（ビルド済みバイナリ）
 - `s2-pro-q4_k_m.gguf`
 - `tokenizer.json`
-- `s2.cpp/build/s2`（実行バイナリ）
 
-`mydj-host/config.toml` の以下を実体パスに合わせてください。
-- `tts.s2_binary`
-- `tts.s2_model`
-- `tts.s2_tokenizer`
+`mydj-host/config.toml` の `tts.s2_binary`、`tts.s2_model`、`tts.s2_tokenizer` を実際のパスに合わせてください。
 
-## 6) Reddit公開時の注意
-- モデル本体は再配布しない
-- ライセンス表記をREADMEと投稿文に明記
-- 動作動画（30〜60秒）を先頭に置く
-
-## 7) Fish Audio利用時の最低対応
-- リポジトリに [NOTICE](NOTICE) を含める
-- Fish Audioライセンス本文を確認可能にする（[Fish Audio License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE)）
-- 商用利用の可能性がある場合は事前に Fish Audio へ連絡する
+リリース手順の詳細は [EASY_RELEASE.md](EASY_RELEASE.md) を参照。

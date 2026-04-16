@@ -8,9 +8,9 @@ ollama_url = "http://host.docker.internal:11434"
 default_model = "llama3.2"
 
 [tts]
-# mode = "http"  で fish-speech の HTTP サーバーを使う
-# mode = "subprocess" で s2.cpp バイナリを直接呼び出す
-mode = "subprocess"
+# mode = "http"  で fish-speech の HTTP サーバーを使う（Docker 環境では推奨）
+# mode = "subprocess" で s2.cpp バイナリを直接呼び出す（Linux ネイティブ実行時のみ）
+mode = "http"
 
 # mode = "http" のとき使用
 fish_speech_url = "http://host.docker.internal:8080"
