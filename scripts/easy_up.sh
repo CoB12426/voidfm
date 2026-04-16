@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HOST_DIR="$ROOT_DIR/mydj-host"
+MODELS_DIR="$ROOT_DIR/models"
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "[ERROR] docker command not found"
+  exit 1
+fi
+
+if [[ ! -f "$HOST_DIR/config.toml" ]]; then
+  echo "[INFO] config.toml not found. Creating from docker example..."
+  cp "$HOST_DIR/config.docker.toml.example" "$HOST_DIR/config.toml"
+  echo "[WARN] Edit $HOST_DIR/config.toml to match your model files."
+fi
+
+mkdir -p "$MODELS_DIR"
+
+if [[ ! -f "$MODELS_DIR/s2-pro-q4_k_m.gguf" ]] || [[ ! -f "$MODELS_DIR/tokenizer.json" ]] || [[ ! -x "$MODELS_DIR/s2" ]]; then
+  echo "[ERROR] Missing required model files in $MODELS_DIR"
+  echo "  - s2 (executable)"
+  echo "  - s2-pro-q4_k_m.gguf"
+  echo "  - tokenizer.json"
+  echo "Please place them and run again."
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+docker compose -f docker-compose.easy.yml up -d --build
+
+echo "[OK] Host started: http://localhost:8000"
+echo "[NEXT] Install APK from your GitHub Releases and set host IP in the app settings."

@@ -46,6 +46,7 @@ mydj-host/config.toml
 *.pth
 *.bin
 tokenizer.json
+models/
 checkpoints/
 fish-speech/checkpoints/
 

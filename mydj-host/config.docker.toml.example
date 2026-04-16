@@ -1,0 +1,30 @@
+[server]
+port = 8000
+host = "0.0.0.0"
+
+[llm]
+# Dockerコンテナからホスト側のOllamaへ接続する例
+ollama_url = "http://host.docker.internal:11434"
+default_model = "llama3.2"
+
+[tts]
+# mode = "http"  で fish-speech の HTTP サーバーを使う
+# mode = "subprocess" で s2.cpp バイナリを直接呼び出す
+mode = "subprocess"
+
+# mode = "http" のとき使用
+fish_speech_url = "http://host.docker.internal:8080"
+default_speaker = "default"
+
+# mode = "subprocess" のとき使用
+# /models は docker-compose.easy.yml でマウントされる
+s2_binary = "/models/s2"
+s2_model = "/models/s2-pro-q4_k_m.gguf"
+s2_tokenizer = "/models/tokenizer.json"
+
+# GPUが使える環境なら0, CPUのみなら-1
+cuda_device = -1
+
+[dj]
+default_language = "en"
+default_talk_length = "medium"

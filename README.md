@@ -2,7 +2,16 @@
 
 ローカル音楽再生に DJ トークを差し込む実験プロジェクトです。
 
-## 0) ライセンス重要事項（TTSモデル）
+## 0) かんたん版（Docker + APK + 3ステップ）
+準備が面倒な人向けの最短導線です。
+
+1. GitHub Releases から APK をダウンロードして Android にインストール
+2. PCで `./scripts/easy_up.sh` を実行（Dockerでhost起動）
+3. アプリ設定で host の IP と port=8000 を入力して ON AIR
+
+詳細は [EASY_RELEASE.md](EASY_RELEASE.md) を参照。
+
+## 1) ライセンス重要事項（TTSモデル）
 - Fish Audio由来のモデル/素材（以下 Fish Audio Materials）は、
   **Research / Non-Commercial 用途のみ無償利用可能**です。
 - **商用利用には Fish Audio との別途ライセンス契約が必要**です。
@@ -10,18 +19,19 @@
   指定アトリビューション等）を満たしてください。
 - 詳細は[(fish-speech/LICENSE)](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) を必ず確認してください。
 
-## 1) 公開方針
+## 2) 公開方針
 - このリポジトリには **コードのみ** を含めます。
 - モデル（GGUF / tokenizer / checkpoints）は各自ダウンロードして配置してください。
 - `mydj-host/config.toml` はローカル設定として Git 管理しません。
 
-## 2) 必要要件
+## 3) 必要要件
 - Linux
 - Python 3.10+
 - Flutter 3.x
 - （任意）Ollama または互換 LLM API
+- （かんたん版は Docker 必須）
 
-## 3) クイックスタート
+## 4) 開発者向けクイックスタート
 
 ### 初回
 1. Python 仮想環境を作成（`/voidfm`）
@@ -36,7 +46,7 @@
 - host 停止
   - `./scripts/dev_down.sh`
 
-## 4) モデル配置ルール（例）
+## 5) モデル配置ルール（例）
 - `s2-pro-q4_k_m.gguf`
 - `tokenizer.json`
 - `s2.cpp/build/s2`（実行バイナリ）
@@ -45,3 +55,13 @@
 - `tts.s2_binary`
 - `tts.s2_model`
 - `tts.s2_tokenizer`
+
+## 6) Reddit公開時の注意
+- モデル本体は再配布しない
+- ライセンス表記をREADMEと投稿文に明記
+- 動作動画（30〜60秒）を先頭に置く
+
+## 7) Fish Audio利用時の最低対応
+- リポジトリに [NOTICE](NOTICE) を含める
+- Fish Audioライセンス本文を確認可能にする（[Fish Audio License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE)）
+- 商用利用の可能性がある場合は事前に Fish Audio へ連絡する
