@@ -8,7 +8,7 @@
 - **商用利用には Fish Audio との別途ライセンス契約が必要**です。
 - 再配布・公開時は、Fish Audioライセンスの配布条件（ライセンス同梱、
   指定アトリビューション等）を満たしてください。
-- 詳細は [fish-speech/LICENSE](fish-speech/LICENSE) を必ず確認してください。
+- 詳細は[[fish-speech/LICENSE](fish-speech/LICENSE)](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) を必ず確認してください。
 
 ## 1) 公開方針
 - このリポジトリには **コードのみ** を含めます。
