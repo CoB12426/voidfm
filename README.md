@@ -17,6 +17,11 @@ Windows (PowerShell):
 
 Windowsで手軽に試す場合は、`mydj-host/config.toml` の `tts.mode = "http"` を推奨します。
 
+`tts.mode = "http"` の場合、easyスクリプトは `fish-speech` サーバーも自動起動します。
+
+Ollama は easyスクリプトで自動起動しません（到達性チェックのみ）。
+`llm.ollama_url` の先で別途起動してください。
+
 詳細は [EASY_RELEASE.md](EASY_RELEASE.md) を参照。
 
 ## 1) ライセンス重要事項（TTSモデル）

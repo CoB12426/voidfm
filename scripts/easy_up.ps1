@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $RootDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $HostDir = Join-Path $RootDir "mydj-host"
 $ModelsDir = Join-Path $RootDir "models"
+$FishDir = Join-Path $RootDir "fish-speech"
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   Write-Error "docker command not found. Install Docker Desktop first."
@@ -15,6 +16,11 @@ if (-not (Test-Path $configPath)) {
   Copy-Item $configExample $configPath
   Write-Warning "Edit $configPath to match your model files."
 }
+
+$cfgText = Get-Content -Raw -Path $configPath
+$ollamaUrl = $null
+$m = [regex]::Match($cfgText, '(?m)^\s*ollama_url\s*=\s*"([^"]+)"')
+if ($m.Success) { $ollamaUrl = $m.Groups[1].Value }
 
 New-Item -ItemType Directory -Force -Path $ModelsDir | Out-Null
 
@@ -30,6 +36,21 @@ if ($isSubprocess) {
 }
 else {
   Write-Host "[INFO] TTS mode is not subprocess. Skipping local model file checks."
+
+  if (Test-Path $FishDir) {
+    Write-Host "[INFO] Starting fish-speech server (http mode)..."
+    Push-Location $FishDir
+    try {
+      docker compose -f compose.yml --profile server up -d --build
+    }
+    finally {
+      Pop-Location
+    }
+  }
+  else {
+    Write-Warning "fish-speech directory not found: $FishDir"
+    Write-Warning "Ensure tts.fish_speech_url is reachable from mydj-host container."
+  }
 }
 
 Push-Location $RootDir
@@ -38,6 +59,18 @@ try {
 }
 finally {
   Pop-Location
+}
+
+if ($ollamaUrl) {
+  try {
+    $healthUrl = ($ollamaUrl.TrimEnd('/')) + '/api/tags'
+    Invoke-WebRequest -Uri $healthUrl -Method Get -TimeoutSec 3 | Out-Null
+    Write-Host "[OK] Ollama reachable: $ollamaUrl"
+  }
+  catch {
+    Write-Warning "Ollama not reachable: $ollamaUrl"
+    Write-Warning "Start Ollama separately, or point llm.ollama_url to a reachable endpoint."
+  }
 }
 
 Write-Host "[OK] Host started: http://localhost:8000"
