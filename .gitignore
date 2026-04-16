@@ -55,3 +55,7 @@ s2.cpp/
 
 # ---- Optional caches ----
 .cache/
+
+# ---- Memo ----
+SIDEPROJECT_POST_TEMPLATE_ja.md
+RELEASE_CHECKLIST.md
