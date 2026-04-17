@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import tempfile
 from pathlib import Path
 
@@ -94,11 +95,24 @@ async def _synthesize_subprocess_inner(cfg: dict, text: str) -> bytes:
 
     logger.debug("TTS subprocess: %s", " ".join(cmd))
 
+    # Docker 環境では /models 配下に ggml の共有ライブラリを置く想定。
+    # compose 側の環境変数が欠けていても起動できるよう、ここで明示的に補完する。
+    env = os.environ.copy()
+    ld_library_path = [
+        str(Path(binary).parent),
+        "/models",
+        env.get("LD_LIBRARY_PATH", ""),
+    ]
+    env["LD_LIBRARY_PATH"] = ":".join(
+        dict.fromkeys(path for path in ld_library_path if path)
+    )
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_TIMEOUT_TTS)
 

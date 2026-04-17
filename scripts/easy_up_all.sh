@@ -8,6 +8,23 @@ MODELS_DIR="$ROOT_DIR/models"
 S2_DIR="$ROOT_DIR/s2.cpp"
 S2_BIN="$MODELS_DIR/s2"
 
+sync_ggml_shared_libs() {
+  local copied=0
+
+  if [[ ! -d "$S2_DIR/build" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r -d '' lib; do
+    cp -fP "$lib" "$MODELS_DIR/"
+    copied=1
+  done < <(find "$S2_DIR/build" -name "libggml*.so*" -print0)
+
+  if [[ "$copied" -eq 1 ]]; then
+    echo "[INFO] ggml shared libraries synced to models/"
+  fi
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "[ERROR] docker command not found"
   exit 1
@@ -44,13 +61,25 @@ if [[ ! -f "$S2_BIN" ]]; then
   done
 
   echo "[INFO] Building s2.cpp (this may take a few minutes)..."
-  cmake -S "$S2_DIR" -B "$S2_DIR/build" -DCMAKE_BUILD_TYPE=Release -DS2_CUDA=OFF -Wno-dev -DCMAKE_POLICY_VERSION_MINIMUM=3.5 2>/dev/null
+  cmake -S "$S2_DIR" -B "$S2_DIR/build" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DS2_CUDA=OFF \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_BUILD_RPATH='$ORIGIN' \
+    -DCMAKE_INSTALL_RPATH='$ORIGIN' \
+    -Wno-dev -DCMAKE_POLICY_VERSION_MINIMUM=3.5 2>/dev/null
   cmake --build "$S2_DIR/build" --target s2 -j"$(nproc)"
   cp "$S2_DIR/build/s2" "$S2_BIN"
   chmod +x "$S2_BIN"
-  # ggml shared libraries も同梱（コンテナ内で LD_LIBRARY_PATH=/models で解決）
-  find "$S2_DIR/build" -name "libggml*.so*" -exec cp -P {} "$MODELS_DIR/" \;
   echo "[INFO] s2 binary built: $S2_BIN"
+fi
+
+# s2 が既に存在していても、共有ライブラリ不足で実行に失敗するケースがあるため毎回同期する
+sync_ggml_shared_libs
+
+if [[ -x "$S2_BIN" ]] && ! compgen -G "$MODELS_DIR/libggml*.so*" > /dev/null; then
+  echo "[WARN] ggml shared libraries were not found in models/."
+  echo "       If TTS fails, rebuild s2.cpp and ensure libggml*.so* are copied to models/."
 fi
 
 # tokenizer.json をmodels/にコピー（s2.cppから）

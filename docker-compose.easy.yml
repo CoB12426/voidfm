@@ -6,6 +6,8 @@ services:
     container_name: voidfm-host
     ports:
       - "8000:8000"
+    environment:
+      - LD_LIBRARY_PATH=/models
     volumes:
       - ./mydj-host/config.toml:/app/config.toml:ro
       - ./models:/models:ro
