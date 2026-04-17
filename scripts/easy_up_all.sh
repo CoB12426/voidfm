@@ -48,6 +48,8 @@ if [[ ! -f "$S2_BIN" ]]; then
   cmake --build "$S2_DIR/build" --target s2 -j"$(nproc)"
   cp "$S2_DIR/build/s2" "$S2_BIN"
   chmod +x "$S2_BIN"
+  # ggml shared libraries も同梱（コンテナ内で LD_LIBRARY_PATH=/models で解決）
+  find "$S2_DIR/build" -name "libggml*.so*" -exec cp -P {} "$MODELS_DIR/" \;
   echo "[INFO] s2 binary built: $S2_BIN"
 fi
 
