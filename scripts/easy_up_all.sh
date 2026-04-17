@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST_DIR="$ROOT_DIR/mydj-host"
 CONFIG_PATH="$HOST_DIR/config.toml"
 MODELS_DIR="$ROOT_DIR/models"
+S2_DIR="$ROOT_DIR/s2.cpp"
+S2_BIN="$MODELS_DIR/s2"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[ERROR] docker command not found"
@@ -16,22 +18,53 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
   cp "$HOST_DIR/config.allinone.toml.example" "$CONFIG_PATH"
 fi
 
-# models/ ディレクトリを事前作成（Docker がroot所有で作らないように）
 mkdir -p "$MODELS_DIR"
 
-# modelsディレクトリ内の必要ファイルを確認
-MISSING=0
-for REQUIRED in s2 s2-pro-q4_k_m.gguf tokenizer.json; do
-  if [[ ! -f "$MODELS_DIR/$REQUIRED" ]]; then
-    echo "[WARN] TTS file not found: models/$REQUIRED"
-    MISSING=1
+# ── s2.cpp: clone & build ──────────────────────────────────────────────────
+if [[ ! -f "$S2_BIN" ]]; then
+  echo "[INFO] s2 binary not found. Building from source..."
+
+  if [[ ! -d "$S2_DIR/src" ]]; then
+    if command -v git >/dev/null 2>&1; then
+      echo "[INFO] Cloning s2.cpp..."
+      git -C "$ROOT_DIR" clone https://github.com/rodrigomatta/s2.cpp.git s2.cpp
+    else
+      echo "[ERROR] s2.cpp not found and git is unavailable."
+      exit 1
+    fi
   fi
-done
-if [[ "$MISSING" -eq 1 ]]; then
-  echo "       Place the required files in the models/ directory before using TTS."
+
+  for TOOL in cmake make g++; do
+    if ! command -v "$TOOL" >/dev/null 2>&1; then
+      echo "[ERROR] Build tool not found: $TOOL"
+      echo "        Install build tools and try again:"
+      echo "        sudo apt install cmake build-essential"
+      exit 1
+    fi
+  done
+
+  echo "[INFO] Building s2.cpp (this may take a few minutes)..."
+  cmake -S "$S2_DIR" -B "$S2_DIR/build" -DCMAKE_BUILD_TYPE=Release -DS2_CUDA=OFF -Wno-dev -DCMAKE_POLICY_VERSION_MINIMUM=3.5 2>/dev/null
+  cmake --build "$S2_DIR/build" --target s2 -j"$(nproc)"
+  cp "$S2_DIR/build/s2" "$S2_BIN"
+  chmod +x "$S2_BIN"
+  echo "[INFO] s2 binary built: $S2_BIN"
+fi
+
+# tokenizer.json をmodels/にコピー（s2.cppから）
+if [[ ! -f "$MODELS_DIR/tokenizer.json" ]] && [[ -f "$S2_DIR/tokenizer.json" ]]; then
+  cp "$S2_DIR/tokenizer.json" "$MODELS_DIR/tokenizer.json"
+  echo "[INFO] tokenizer.json copied to models/"
+fi
+
+# GGUFモデルの確認
+if [[ ! -f "$MODELS_DIR/s2-pro-q4_k_m.gguf" ]]; then
+  echo "[WARN] TTS model not found: models/s2-pro-q4_k_m.gguf"
+  echo "       TTS will not work until the model is placed in models/."
   echo "       See README.md for instructions."
 fi
 
+# ── Docker起動 ────────────────────────────────────────────────────────────
 cd "$ROOT_DIR"
 
 GPU_ENABLED=0
