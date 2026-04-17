@@ -50,8 +50,8 @@ docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
 **Linux：**
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/VoidFM.git
-cd VoidFM
+git clone https://github.com/CoB12426/voidfm.git
+cd voidfm
 docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
 ```
 
