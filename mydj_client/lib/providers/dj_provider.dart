@@ -30,7 +30,6 @@ class DjProvider extends ChangeNotifier {
   // ── 公開状態 ──────────────────────────────────────────────────────────
   TrackInfo? _currentTrack;
   TrackInfo? _nextTrack;
-  TrackInfo? _nextNextTrack;
   bool _isOnAir      = false;
   bool _isPlayingTalk = false;
   bool? _hostConnected;
@@ -60,10 +59,9 @@ class DjProvider extends ChangeNotifier {
 
   // ── TTS 生成 ──────────────────────────────────────────────────────────
   Completer<Uint8List?>? _ttsCompleter;
-  TrackInfo? _ttsForTrack;       // 生成対象の currentTrack
-  TrackInfo? _ttsNextTrack;      // 生成開始時に使った nextTrack
-  TrackInfo? _ttsNextNextTrack;  // 生成開始時に使った nextNextTrack
-  http.Client? _ttsHttpClient;   // 進行中リクエストのキャンセル用
+  TrackInfo? _ttsForTrack;    // 生成対象の currentTrack
+  TrackInfo? _ttsNextTrack;   // 生成開始時に使った nextTrack
+  http.Client? _ttsHttpClient; // 進行中リクエストのキャンセル用
 
   // ── 設定 ─────────────────────────────────────────────────────────────
   String        _hostAddress = '';
@@ -104,12 +102,7 @@ class DjProvider extends ChangeNotifier {
         artist: artist,
         album:  raw['album'] as String?,
       );
-      final nnTitle  = raw['next_title']  as String?;
-      final nnArtist = raw['next_artist'] as String?;
-      final nextNext = (nnTitle != null && nnArtist != null)
-          ? TrackInfo(title: nnTitle, artist: nnArtist, album: raw['next_album'] as String?)
-          : null;
-      _onNextTrackUpdated(next, nextNext);
+      _onNextTrackUpdated(next);
     });
   }
 
@@ -191,7 +184,6 @@ class DjProvider extends ChangeNotifier {
     _currentTrack   = newTrack;
     _trackStartTime = now;
     _nextTrack      = null;
-    _nextNextTrack  = null;
     notifyListeners();
 
     if (!_isOnAir) {
@@ -360,13 +352,11 @@ class DjProvider extends ChangeNotifier {
     _cancelTts();
     if (_currentTrack == null || _hostAddress.isEmpty) return;
 
-    final forTrack  = _currentTrack!;
-    final songNext  = _nextTrack;
-    final songAfter = _nextNextTrack;
+    final forTrack = _currentTrack!;
+    final songNext = _nextTrack;
 
-    _ttsForTrack      = forTrack;
-    _ttsNextTrack     = songNext;
-    _ttsNextNextTrack = songAfter;
+    _ttsForTrack  = forTrack;
+    _ttsNextTrack = songNext;
     final completer = Completer<Uint8List?>();
     _ttsCompleter = completer;
 
@@ -376,7 +366,6 @@ class DjProvider extends ChangeNotifier {
     _generateTts(
       previousTrack: forTrack,
       currentTrack:  songNext,
-      nextTrack:     songAfter,
     ).then((bytes) {
       debugPrint('DjProvider: TTS generation completed (${bytes?.length ?? 0} bytes)');
       if (!completer.isCompleted) {
@@ -397,11 +386,10 @@ class DjProvider extends ChangeNotifier {
   void _cancelTts() {
     // 進行中の HTTP リクエストを強制中断する
     _ttsHttpClient?.close();
-    _ttsHttpClient    = null;
-    _ttsCompleter     = null;
-    _ttsForTrack      = null;
-    _ttsNextTrack     = null;
-    _ttsNextNextTrack = null;
+    _ttsHttpClient = null;
+    _ttsCompleter  = null;
+    _ttsForTrack   = null;
+    _ttsNextTrack  = null;
   }
 
   Future<bool> _waitForTtsReady(Completer<Uint8List?> completer) async {
@@ -472,7 +460,6 @@ class DjProvider extends ChangeNotifier {
   Future<Uint8List?> _generateTts({
     required TrackInfo previousTrack,
     TrackInfo?         currentTrack,
-    TrackInfo?         nextTrack,
   }) async {
     final client = http.Client();
     _ttsHttpClient = client;
@@ -484,7 +471,6 @@ class DjProvider extends ChangeNotifier {
       ).fetchTalk(
         previousTrack: previousTrack,
         currentTrack:  currentTrack ?? previousTrack,
-        nextTrack:     nextTrack,
         preferences:   _preferences,
       );
       debugPrint('DjProvider: TTS done (${bytes.length} bytes)');
@@ -504,10 +490,9 @@ class DjProvider extends ChangeNotifier {
   }
 
   /// nextTrack 情報が更新された。nextTrack が実際に変化した場合のみ TTS を再生成する。
-  void _onNextTrackUpdated(TrackInfo track, TrackInfo? nextNext) {
-    debugPrint('DjProvider: _onNextTrackUpdated — next="${track.title}" nextNext="${nextNext?.title}"');
-    _nextTrack     = track;
-    _nextNextTrack = nextNext;
+  void _onNextTrackUpdated(TrackInfo track) {
+    debugPrint('DjProvider: _onNextTrackUpdated — next="${track.title}"');
+    _nextTrack = track;
 
     if (!_isOnAir || _currentTrack == null || _isPlayingTalk) {
       debugPrint('DjProvider: _onNextTrackUpdated — early return (isOnAir=$_isOnAir, '
@@ -522,21 +507,15 @@ class DjProvider extends ChangeNotifier {
       return;
     }
 
-    // 生成中 or 完了済みの場合: nextTrack が変化したときのみ対応
-    final nextChanged     = track    != _ttsNextTrack;
-    final nextNextChanged = nextNext != _ttsNextNextTrack;
-
-    if (!(nextChanged || nextNextChanged)) return; // 同じ情報なら何もしない
+    if (_ttsNextTrack == track) return; // 同じ情報なら何もしない
 
     if (!_ttsCompleter!.isCompleted) {
       if (_ttsNextTrack == null) {
         // 曲変更直後の生成（nextTrack 未取得）に nextTrack 情報が初めて届いた。
         // 再生成はせず、次回の比較用として記録だけ更新する。
-        // （再生成するとサーバーへのリクエストが曲変更ごとに2回走ってしまう）
         debugPrint('DjProvider: nextTrack arrived for in-progress generation, '
             'updating stored value without restart — next="$track"');
-        _ttsNextTrack     = track;
-        _ttsNextNextTrack = nextNext;
+        _ttsNextTrack = track;
       } else {
         // すでに nextTrack 情報ありで生成中 → より新しい情報で再生成
         debugPrint('DjProvider: nextTrack changed during generation, restarting TTS'

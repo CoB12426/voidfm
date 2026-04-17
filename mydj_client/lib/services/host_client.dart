@@ -58,7 +58,6 @@ class HostClient {
   Future<Uint8List> fetchTalk({
     required TrackInfo currentTrack,
     TrackInfo? previousTrack,
-    TrackInfo? nextTrack,
     required DjPreferences preferences,
   }) async {
     final client = _client ?? http.Client();
@@ -67,7 +66,6 @@ class HostClient {
       final body = jsonEncode({
         'current_track':                   currentTrack.toJson(),
         if (previousTrack != null) 'previous_track': previousTrack.toJson(),
-        if (nextTrack != null)     'next_track':     nextTrack.toJson(),
         'preferences':             preferences.toJson(),
       });
 

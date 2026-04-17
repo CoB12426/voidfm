@@ -29,7 +29,6 @@ class DjPreferences(BaseModel):
 class TalkRequest(BaseModel):
     current_track: TrackInfo                    # 次の曲（void talk 後に再生される曲）
     previous_track: Optional[TrackInfo] = None  # 直前に終わった曲
-    next_track: Optional[TrackInfo] = None      # 次の次の曲（MediaSession キューから取得できた場合）
     preferences: Optional[DjPreferences] = None
     is_mid_song: bool = False                   # 廃止予定、互換性のため残す
 

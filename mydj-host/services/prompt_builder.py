@@ -206,7 +206,6 @@ async def _get_context(cfg: dict) -> tuple[str, str]:
 async def build_prompt(
     current_track: TrackInfo,             # 次の曲（void talk 後に再生される曲）
     previous_track: Optional[TrackInfo],  # 直前に終わった曲
-    next_track: Optional[TrackInfo],      # 次の次の曲（キューから取得できた場合）
     language: str,
     talk_length: str,
     personality: Optional[str] = None,
@@ -226,12 +225,12 @@ async def build_prompt(
 
     if language == "ja":
         prompt = _build_ja(
-            context_ja, pcfg, current_track, previous_track, next_track,
+            context_ja, pcfg, current_track, previous_track,
             length_instruction, is_mid_song,
         )
     else:
         prompt = _build_en(
-            context_en, pcfg, current_track, previous_track, next_track,
+            context_en, pcfg, current_track, previous_track,
             length_instruction, is_mid_song,
         )
 
@@ -244,7 +243,6 @@ def _build_ja(
     pcfg: dict,
     current_track: TrackInfo,
     previous_track: Optional[TrackInfo],
-    next_track: Optional[TrackInfo],
     length_instruction: str,
     is_mid_song: bool,
 ) -> str:
@@ -266,27 +264,19 @@ def _build_ja(
         )
 
     # ---- Void Talk（曲と曲の間）----
-    # 各情報行
     prev_line = (
         f"■ 直前に終わった曲: {previous_track.artist} の「{previous_track.title}」\n"
         if previous_track else ""
     )
     next_line = f"■ 次の曲（これから流れる曲）: {current_track.artist} の「{current_track.title}」\n"
-    after_next_line = (
-        f"■ その次の曲（キュー情報）: {next_track.artist} の「{next_track.title}」\n"
-        if next_track else ""
-    )
 
-    # トーク構成の指示
     if previous_track:
         structure = (
             "以下の構成でトークしてください（自然に組み合わせ、かつ文章として完結させること）:\n"
-            f"1. 直前に終わった曲の紹介（「只今お送りしたのは〜でした」）\n"
-            f"2. 時刻・天気に触れる、または日常の雑談・ジョークなど（毎回時間や天気を言う必要はありません）\n"
-            f"3. 次の曲の予告（「続きましては〜をお送りします」）"
+            "1. 直前に終わった曲の紹介（「只今お送りしたのは〜でした」）\n"
+            "2. 時刻・天気に触れる、または日常の雑談・ジョークなど（毎回時間や天気を言う必要はありません）\n"
+            "3. 次の曲の予告（「続きましては〜をお送りします」）"
         )
-        if next_track:
-            structure += f"\n4. さらに次の曲も軽く触れてもよい（「その後は〜もお届けします」等）"
     else:
         structure = (
             "以下の構成でトークしてください:\n"
@@ -294,20 +284,18 @@ def _build_ja(
             "2. 時刻・天気に触れる、または日常の雑談・ジョークなど（毎回時間や天気を言う必要はありません）"
         )
 
-    # ジョーク指示（確率的）
     joke = _joke_hint_ja(pcfg)
     joke_line = f"\n【追加指示】{joke}" if joke else ""
 
     return (
         f"{context}\n\n"
         f"あなたは{persona}です。{style}\n"
-        f"音楽が一時停止している間のDJトークを日本語で行います。\n"
+        "音楽が一時停止している間のDJトークを日本語で行います。\n"
         "これは終わりのない連続放送なので、締めの挨拶・終幕表現（例: 締めくくり、また次回、またお会いしましょう）は使わないでください。\n"
-        f"余計な前置きなしで、トーク本文だけ出力してください。"
+        "余計な前置きなしで、トーク本文だけ出力してください。"
         "文章は必ず最後まで完結させてください。\n\n"
         f"{prev_line}"
         f"{next_line}"
-        f"{after_next_line}"
         f"\n{structure}"
         f"{joke_line}\n\n"
         f"{emotion_guide}\n\n"
@@ -320,7 +308,6 @@ def _build_en(
     pcfg: dict,
     current_track: TrackInfo,
     previous_track: Optional[TrackInfo],
-    next_track: Optional[TrackInfo],
     length_instruction: str,
     is_mid_song: bool,
 ) -> str:
@@ -346,10 +333,6 @@ def _build_en(
         if previous_track else ""
     )
     next_line = f"■ Next track (about to play): \"{current_track.title}\" by {current_track.artist}\n"
-    after_next_line = (
-        f"■ After that (from queue): \"{next_track.title}\" by {next_track.artist}\n"
-        if next_track else ""
-    )
 
     if previous_track:
         structure = (
@@ -358,8 +341,6 @@ def _build_en(
             "2. A casual chat, a joke, OR a comment tied to the time/weather (no need to mention the time or weather every time)\n"
             "3. Introduce the next track (\"Coming up next is [song]...\")"
         )
-        if next_track:
-            structure += "\n4. Optionally mention what's after that (\"And after that, you'll hear...\")"
     else:
         structure = (
             "Structure your talk around:\n"
@@ -380,7 +361,6 @@ def _build_en(
         "Output only the talk itself, no preamble.\n\n"
         f"{prev_line}"
         f"{next_line}"
-        f"{after_next_line}"
         f"\n{structure}"
         f"{joke_line}\n\n"
         f"{emotion_guide}\n\n"

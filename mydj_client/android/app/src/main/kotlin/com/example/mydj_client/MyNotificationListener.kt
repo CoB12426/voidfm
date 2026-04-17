@@ -31,7 +31,7 @@ class MyNotificationListener : NotificationListenerService() {
     companion object {
         private const val TAG = "MyNotifListener"
         private const val USER_SKIP_GUARD_MS = 2500L
-        private const val PRE_END_PAUSE_MS = 50L
+        private const val PRE_END_PAUSE_MS = 150L
         private const val PRE_END_MONITOR_INTERVAL_MS = 20L
 
         /** 現在トラック用 EventSink（com.example.mydj/notification） */
@@ -438,26 +438,10 @@ class MyNotificationListener : NotificationListenerService() {
 
         Log.d(TAG, "extractNextTrack: $artist – $title (index=$nextIndex/${queue.size - 1})")
 
-        val result = mutableMapOf<String, Any?>(
+        return mutableMapOf(
             "title"  to title,
             "artist" to artist,
             "album"  to desc.description?.toString(),
         )
-
-        // 次の次のトラック（song_after_next）を取得してDJトークの紹介に使う
-        val nextNextIndex = nextIndex + 1
-        if (nextNextIndex < queue.size) {
-            val nnDesc   = queue[nextNextIndex].description
-            val nnTitle  = nnDesc.title?.toString()
-            val nnArtist = nnDesc.subtitle?.toString()
-            if (nnTitle != null && nnArtist != null) {
-                result["next_title"]  = nnTitle
-                result["next_artist"] = nnArtist
-                result["next_album"]  = nnDesc.description?.toString()
-                Log.d(TAG, "extractNextTrack: after=$nnArtist – $nnTitle")
-            }
-        }
-
-        return result
     }
 }

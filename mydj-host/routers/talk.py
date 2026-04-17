@@ -91,7 +91,6 @@ async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
         prompt = await prompt_builder.build_prompt(
             current_track=body.current_track,
             previous_track=body.previous_track,
-            next_track=body.next_track,
             language=language,
             talk_length=talk_length,
             personality=personality,
