@@ -57,11 +57,22 @@ if [[ ! -f "$MODELS_DIR/tokenizer.json" ]] && [[ -f "$S2_DIR/tokenizer.json" ]];
   echo "[INFO] tokenizer.json copied to models/"
 fi
 
-# GGUFモデルの確認
-if [[ ! -f "$MODELS_DIR/s2-pro-q4_k_m.gguf" ]]; then
-  echo "[WARN] TTS model not found: models/s2-pro-q4_k_m.gguf"
-  echo "       TTS will not work until the model is placed in models/."
-  echo "       See README.md for instructions."
+# GGUFモデルの自動ダウンロード
+GGUF_PATH="$MODELS_DIR/s2-pro-q4_k_m.gguf"
+GGUF_URL="https://huggingface.co/rodrigomt/s2-pro-gguf/resolve/main/s2-pro-q4_k_m.gguf?download=true"
+if [[ ! -f "$GGUF_PATH" ]]; then
+  if command -v curl >/dev/null 2>&1; then
+    echo "[INFO] Downloading TTS model (approx 3.4GB)..."
+    curl -L --progress-bar -o "$GGUF_PATH" "$GGUF_URL" || {
+      rm -f "$GGUF_PATH"
+      echo "[ERROR] Failed to download GGUF model."
+      exit 1
+    }
+    echo "[INFO] TTS model downloaded: $GGUF_PATH"
+  else
+    echo "[WARN] curl not found. Cannot auto-download TTS model."
+    echo "       Install curl or manually place s2-pro-q4_k_m.gguf in models/."
+  fi
 fi
 
 # ── Docker起動 ────────────────────────────────────────────────────────────
