@@ -53,6 +53,11 @@ class DjProvider extends ChangeNotifier {
   // トーク頻度管理
   int _songsSinceTalk = 0;  // 最後のトーク再生からの経過曲数
 
+  // radio4all カウンター（10回に1回 radio4all.mp3 を再生）
+  int _talkPlayCount = 0;
+  static const _radioAllEvery = 10;
+  static const _radioAllAsset = 'assets/audio/radio4all.mp3';
+
   // 再生履歴（最大5件、古い順）
   final List<TrackInfo> _trackHistory = [];
   static const _maxHistorySize = 5;
@@ -66,10 +71,11 @@ class DjProvider extends ChangeNotifier {
 
   // ── TTS 生成 ──────────────────────────────────────────────────────────
   Completer<Uint8List?>? _ttsCompleter;
-  TrackInfo? _ttsForTrack;         // 生成対象の currentTrack
-  TrackInfo? _ttsNextTrack;        // 生成開始時に使った nextTrack
-  http.Client? _ttsHttpClient;     // 進行中リクエストのキャンセル用
+  TrackInfo? _ttsForTrack;          // 生成対象の currentTrack
+  TrackInfo? _ttsNextTrack;         // 生成開始時に使った nextTrack
+  http.Client? _ttsHttpClient;      // 進行中リクエストのキャンセル用
   List<TrackInfo> _ttsHistory = []; // 生成開始時の履歴スナップショット
+  bool _prependJingle = false;      // station ID 再生前に jingle.mp3 を挟む
 
   // ── 設定 ─────────────────────────────────────────────────────────────
   String        _hostAddress = '';
@@ -250,6 +256,10 @@ class DjProvider extends ChangeNotifier {
           'count=$_songsSinceTalk)');
       _cancelTts();
       await _restoreMusicPlayback();
+    } else if (_shouldPlayRadioAll()) {
+      debugPrint('DjProvider: radio4all ($_talkPlayCount)');
+      _cancelTts();
+      await _playAssetTalk(_radioAllAsset);
     } else if (prevTrack != null &&
         _ttsCompleter != null &&
         _ttsForTrack == prevTrack) {
@@ -314,6 +324,16 @@ class DjProvider extends ChangeNotifier {
         return;
       }
 
+      // radio4all チェック
+      if (_shouldPlayRadioAll()) {
+        debugPrint('DjProvider: onTrackEndingSoon — radio4all ($_talkPlayCount)');
+        _cancelTts();
+        _suppressNextTalk = true;
+        await _playAssetTalk(_radioAllAsset, skipToNextAfterTalk: true);
+        _startTtsGeneration();
+        return;
+      }
+
       // まだ当該曲向けのTTSが無ければ生成開始
       if (_ttsCompleter == null || _ttsForTrack != _currentTrack) {
         _startTtsGeneration();
@@ -344,6 +364,35 @@ class DjProvider extends ChangeNotifier {
   }
 
   // ── 内部実装 ──────────────────────────────────────────────────────────
+
+  /// radio4all を再生すべきか判定し、カウンターを更新する。
+  bool _shouldPlayRadioAll() {
+    _talkPlayCount++;
+    return _talkPlayCount % _radioAllEvery == 0;
+  }
+
+  /// ローカルアセットをそのまま void talk として再生する（LLM/TTS 不要）。
+  Future<void> _playAssetTalk(String assetPath, {bool skipToNextAfterTalk = false}) async {
+    debugPrint('DjProvider: _playAssetTalk — $assetPath');
+    _isPlayingTalk = true;
+    _lastTalkError = null;
+    notifyListeners();
+    try {
+      await _notif.setDjHoldPlayback(true);
+      await _audio.pauseMusic();
+      await Future.delayed(const Duration(milliseconds: 150));
+      await _audio.playAsset(assetPath);
+    } catch (e) {
+      debugPrint('DjProvider: _playAssetTalk error: $e');
+      _lastTalkError = e.toString();
+    } finally {
+      await Future.delayed(const Duration(milliseconds: 150));
+      if (skipToNextAfterTalk) await _notif.skipToNext();
+      await _restoreMusicPlayback();
+      _isPlayingTalk = false;
+      notifyListeners();
+    }
+  }
 
   /// トラックを再生履歴に追加する（最大 [_maxHistorySize] 件）。
   void _addToHistory(TrackInfo track) {
@@ -433,9 +482,10 @@ class DjProvider extends ChangeNotifier {
   /// Station ID をフェッチしてコンプリーターにセットする。
   void _startStationIdFetch() {
     final forTrack = _currentTrack!;
-    _ttsForTrack  = forTrack;
-    _ttsNextTrack = null;
-    _ttsHistory   = [];
+    _ttsForTrack   = forTrack;
+    _ttsNextTrack  = null;
+    _ttsHistory    = [];
+    _prependJingle = true;  // 再生前に jingle.mp3 を挟む
     final completer = Completer<Uint8List?>();
     _ttsCompleter = completer;
 
@@ -452,11 +502,12 @@ class DjProvider extends ChangeNotifier {
   void _cancelTts() {
     // 進行中の HTTP リクエストを強制中断する
     _ttsHttpClient?.close();
-    _ttsHttpClient = null;
-    _ttsCompleter  = null;
-    _ttsForTrack   = null;
-    _ttsNextTrack  = null;
-    _ttsHistory    = [];
+    _ttsHttpClient  = null;
+    _ttsCompleter   = null;
+    _ttsForTrack    = null;
+    _ttsNextTrack   = null;
+    _ttsHistory     = [];
+    _prependJingle  = false;
   }
 
   Future<bool> _waitForTtsReady(Completer<Uint8List?> completer) async {
@@ -475,10 +526,11 @@ class DjProvider extends ChangeNotifier {
     await _notif.setDjHoldPlayback(false);
   }
 
-  /// TTS 音声を再生する（音楽を一時停止 → void talk → resumeMusic）。
+  /// TTS 音声を再生する（音楽を一時停止 → [jingle →] void talk → resumeMusic）。
   Future<void> _playVoidTalk({bool skipToNextAfterTalk = false}) async {
     debugPrint('DjProvider: _playVoidTalk start');
-    final wavBytes = await _ttsCompleter!.future;
+    final wavBytes    = await _ttsCompleter!.future;
+    final withJingle  = _prependJingle;
     _cancelTts();
 
     if (wavBytes == null || wavBytes.isEmpty) {
@@ -487,19 +539,21 @@ class DjProvider extends ChangeNotifier {
       return;
     }
 
-    debugPrint('DjProvider: _playVoidTalk — ${wavBytes.length} bytes, starting playback');
+    debugPrint('DjProvider: _playVoidTalk — ${wavBytes.length} bytes, jingle=$withJingle');
     _isPlayingTalk = true;
     _lastTalkError = null;
     notifyListeners();
 
     try {
-      debugPrint('DjProvider: _playVoidTalk — holdPlayback(true)');
       await _notif.setDjHoldPlayback(true);
-      
-      debugPrint('DjProvider: _playVoidTalk — pauseMusic()');
       await _audio.pauseMusic();
       await Future.delayed(const Duration(milliseconds: 150));
-      
+
+      if (withJingle) {
+        debugPrint('DjProvider: _playVoidTalk — playing jingle');
+        await _audio.playAsset('assets/audio/jingle.m4a');
+      }
+
       debugPrint('DjProvider: _playVoidTalk — playTalk()');
       await _audio.playTalk(wavBytes, contentType: 'audio/mpeg');
       debugPrint('DjProvider: _playVoidTalk — playTalk done');
