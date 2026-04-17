@@ -52,17 +52,11 @@ git clone https://github.com/CoB12426/voidfm.git
 cd voidfm
 ./scripts/easy_up_all.sh
 ```
-
-`easy_up_all` は次を自動で行います。
-- `mydj-host/config.toml` がなければ `config.allinone.toml.example` から作成
-- `fish-speech/` がなければ `https://github.com/fishaudio/fish-speech.git` を自動 clone
-- `docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build` を実行（GPU 前提）
-
 > **初回は Docker のビルドに 20〜30 分かかります。**
 
 ### ステップ 4：モデルをダウンロード（初回のみ）
 
-起動後、**別のターミナル**で以下を2つ実行してください（合計で数GB・数分〜十数分かかります）。
+起動後、**別のターミナル**で以下を2つ実行してください。
 
 **① LLM モデル（Ollama）：**
 
@@ -73,11 +67,12 @@ docker exec -it voidfm-ollama ollama pull llama3.2:1b
 **② TTS モデル（fish-speech）：**
 
 ```bash
+cd fish-speech
 pip install huggingface_hub
 python -c "from huggingface_hub import snapshot_download; snapshot_download('fishaudio/fish-speech-1.5', local_dir='fish-speech/checkpoints/s2-pro')"
 ```
 
-> ダウンロード後は必ず `docker restart voidfm-fish-speech` でコンテナを再起動してください。
+> ダウンロード後は `docker restart voidfm-fish-speech` でコンテナを再起動してください。
 
 ### ステップ 5：アプリで接続
 
@@ -86,6 +81,8 @@ Android アプリを開き、設定画面で PC の IP アドレスとポート 
 PC の IP アドレスの確認方法：
 - **Windows**：PowerShell で `ipconfig` → 「IPv4 アドレス」
 - **Linux**：ターミナルで `hostname -I`
+  
+TailScaleの利用をおすすめします。
 
 ### 停止
 
