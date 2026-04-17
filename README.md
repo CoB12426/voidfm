@@ -81,6 +81,7 @@ Android アプリを開き、設定画面で PC の IP アドレスとポート 
 PC の IP アドレスの確認方法：
 - **Windows**：PowerShell で `ipconfig` → 「IPv4 アドレス」
 - **Linux**：ターミナルで `hostname -I`
+  
 TailScaleの利用をおすすめします。
 
 ### 停止
