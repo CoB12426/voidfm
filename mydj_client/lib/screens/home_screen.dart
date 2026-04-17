@@ -20,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _notificationService = NotificationService();
   StreamSubscription? _trackSubscription;
   StreamSubscription? _trackEndingSubscription;
+  Future<void> _eventChain = Future.value();
 
   @override
   void initState() {
@@ -39,14 +40,22 @@ class _HomeScreenState extends State<HomeScreen> {
   void _startListening() {
     _trackSubscription = _notificationService.trackStream.listen(
       (track) {
+        if (track.title.trim().isEmpty || track.artist.trim().isEmpty) {
+          debugPrint('Notification stream ignored invalid track: $track');
+          return;
+        }
         final settings = context.read<SettingsProvider>();
         final dj = context.read<DjProvider>();
-        dj.onTrackChanged(
-          newTrack: track,
-          hostAddress: settings.hostAddress,
-          port: settings.port,
-          preferences: settings.djPreferences,
-        );
+        _eventChain = _eventChain.then((_) {
+          return dj.onTrackChanged(
+            newTrack: track,
+            hostAddress: settings.hostAddress,
+            port: settings.port,
+            preferences: settings.djPreferences,
+          );
+        }).catchError((e) {
+          debugPrint('Notification stream error: $e');
+        });
       },
       onError: (e) => debugPrint('Notification stream error: $e'),
     );
@@ -55,11 +64,15 @@ class _HomeScreenState extends State<HomeScreen> {
       (_) {
         final settings = context.read<SettingsProvider>();
         final dj = context.read<DjProvider>();
-        dj.onTrackEndingSoon(
-          hostAddress: settings.hostAddress,
-          port: settings.port,
-          preferences: settings.djPreferences,
-        );
+        _eventChain = _eventChain.then((_) {
+          return dj.onTrackEndingSoon(
+            hostAddress: settings.hostAddress,
+            port: settings.port,
+            preferences: settings.djPreferences,
+          );
+        }).catchError((e) {
+          debugPrint('Track ending stream error: $e');
+        });
       },
       onError: (e) => debugPrint('Track ending stream error: $e'),
     );

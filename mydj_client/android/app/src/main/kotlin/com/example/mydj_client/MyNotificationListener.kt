@@ -425,7 +425,23 @@ class MyNotificationListener : NotificationListenerService() {
         val currentIndex = if (activeId != MediaSession.QueueItem.UNKNOWN_ID.toLong()) {
             queue.indexOfFirst { it.queueId == activeId }
         } else {
-            0  // フォールバック: 先頭を現在曲と仮定
+            // activeQueueItemId が不明なアプリ向けフォールバック:
+            // 現在メタデータ(タイトル/アーティスト)とキュー項目を突き合わせる。
+            val meta = controller.metadata
+            val metaTitle = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
+            val metaArtist = meta?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+                ?: meta?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
+
+            if (!metaTitle.isNullOrBlank() && !metaArtist.isNullOrBlank()) {
+                queue.indexOfFirst {
+                    val d = it.description
+                    val qt = d.title?.toString()
+                    val qa = d.subtitle?.toString() ?: d.description?.toString()
+                    qt == metaTitle && qa == metaArtist
+                }
+            } else {
+                -1
+            }
         }
 
         if (currentIndex < 0) return null
@@ -433,14 +449,19 @@ class MyNotificationListener : NotificationListenerService() {
         if (nextIndex >= queue.size) return null
 
         val desc   = queue[nextIndex].description
-        val title  = desc.title?.toString()    ?: return null
-        val artist = desc.subtitle?.toString() ?: return null  // subtitle = artist が一般的
+        val title  = desc.title?.toString()?.trim() ?: return null
+        val artist = desc.subtitle?.toString()
+            ?: desc.description?.toString()
+            ?: return null
+        val artistTrimmed = artist.trim()
 
-        Log.d(TAG, "extractNextTrack: $artist – $title (index=$nextIndex/${queue.size - 1})")
+        if (title.isBlank() || artistTrimmed.isBlank()) return null
+
+        Log.d(TAG, "extractNextTrack: $artistTrimmed – $title (index=$nextIndex/${queue.size - 1})")
 
         return mutableMapOf(
             "title"  to title,
-            "artist" to artist,
+            "artist" to artistTrimmed,
             "album"  to desc.description?.toString(),
         )
     }

@@ -65,6 +65,7 @@ class DjProvider extends ChangeNotifier {
   static const _skipThresholdSec = 30;
   static const _introPreloadTimeout = Duration(seconds: 4);
   static const _introPreRollBuffer = Duration(milliseconds: 180);
+  static const _nextTrackGrace = Duration(milliseconds: 900);
   // 曲切替直後のホスト負荷で TTS 生成が遅れることがあるため、
   // ある程度待ってからスキップ判定する。
   static const _ttsReadyTimeout = Duration(seconds: 12);
@@ -104,9 +105,12 @@ class DjProvider extends ChangeNotifier {
 
   DjProvider() {
     _nextTrackSub = _notif.nextTrackRawStream.listen((raw) {
-      final title  = raw['title']  as String?;
-      final artist = raw['artist'] as String?;
-      if (title == null || artist == null) return;
+      final title  = (raw['title']  as String?)?.trim();
+      final artist = (raw['artist'] as String?)?.trim();
+      if (title == null || title.isEmpty || artist == null || artist.isEmpty) {
+        debugPrint('DjProvider: ignore invalid nextTrack payload: $raw');
+        return;
+      }
       final next = TrackInfo(
         title:  title,
         artist: artist,
@@ -444,13 +448,38 @@ class DjProvider extends ChangeNotifier {
     _cancelTts();
     if (_currentTrack == null || _hostAddress.isEmpty) return;
 
+    unawaited(_startTtsGenerationInternal());
+  }
+
+  Future<void> _startTtsGenerationInternal() async {
+    final expectedCurrent = _currentTrack;
+    if (expectedCurrent == null || _hostAddress.isEmpty) return;
+
+    if (_nextTrack == null) {
+      // nextTrack が少し遅れて届くケースを吸収する
+      await Future.delayed(_nextTrackGrace);
+
+      // 待機中に曲が切り替わっていたら古い生成は中止
+      if (_currentTrack != expectedCurrent) {
+        debugPrint('DjProvider: TTS start aborted (current track moved during grace)');
+        return;
+      }
+    }
+
+    // nextTrack が確定しない場合は曲名言及トークを避ける（誤案内防止）
+    if (_nextTrack == null) {
+      debugPrint('DjProvider: nextTrack unavailable after grace; fallback to station ID');
+      _startStationIdFetch();
+      return;
+    }
+
     if (_rng.nextDouble() < _stationIdRate) {
       _startStationIdFetch();
       return;
     }
 
     final forTrack    = _currentTrack!;
-    final songNext    = _nextTrack;
+    final songNext    = _nextTrack!;
     final historySnap = List<TrackInfo>.from(_trackHistory);
 
     _ttsForTrack  = forTrack;
@@ -460,7 +489,7 @@ class DjProvider extends ChangeNotifier {
     _ttsCompleter = completer;
 
     debugPrint('DjProvider: TTS start — prev="${forTrack.title}" '
-        'next="${songNext?.title ?? "?"}" history=${historySnap.length}');
+        'next="${songNext.title}" history=${historySnap.length}');
 
     _generateTts(
       previousTrack: forTrack,
@@ -580,7 +609,7 @@ class DjProvider extends ChangeNotifier {
   /// ホストへリクエストを送り音声バイト列を返す（null = 失敗 or キャンセル）。
   Future<Uint8List?> _generateTts({
     required TrackInfo previousTrack,
-    TrackInfo?         currentTrack,
+    required TrackInfo currentTrack,
     List<TrackInfo>    trackHistory = const [],
   }) async {
     final client = http.Client();
@@ -592,7 +621,7 @@ class DjProvider extends ChangeNotifier {
         client:      client,
       ).fetchTalk(
         previousTrack: previousTrack,
-        currentTrack:  currentTrack ?? previousTrack,
+        currentTrack:  currentTrack,
         preferences:   _preferences,
         trackHistory:  trackHistory,
       );
@@ -655,22 +684,11 @@ class DjProvider extends ChangeNotifier {
 
     if (_ttsNextTrack == track) return; // 同じ情報なら何もしない
 
-    if (!_ttsCompleter!.isCompleted) {
-      if (_ttsNextTrack == null) {
-        // 曲変更直後の生成（nextTrack 未取得）に nextTrack 情報が初めて届いた。
-        // 再生成はせず、次回の比較用として記録だけ更新する。
-        debugPrint('DjProvider: nextTrack arrived for in-progress generation, '
-            'updating stored value without restart — next="$track"');
-        _ttsNextTrack = track;
-      } else {
-        // すでに nextTrack 情報ありで生成中 → より新しい情報で再生成
-        debugPrint('DjProvider: nextTrack changed during generation, restarting TTS'
-            ' (next: $_ttsNextTrack → $track)');
-        _cancelTts();
-        _startTtsGeneration();
-      }
-    }
-    // 生成完了済みなら変化があっても使用済みデータを保持（再生成しない）
+    // nextTrack が変わったら常に最新情報で作り直す（誤曲名トーク防止）
+    debugPrint('DjProvider: nextTrack changed, restarting TTS '
+        '(next: $_ttsNextTrack → $track, completed=${_ttsCompleter?.isCompleted})');
+    _cancelTts();
+    _startTtsGeneration();
   }
 
   void _pingHostSilently() {

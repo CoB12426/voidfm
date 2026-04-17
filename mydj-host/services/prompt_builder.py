@@ -255,14 +255,30 @@ def _build(
         f"■ Previous track (just ended): \"{previous_track.title}\" by {previous_track.artist}\n"
         if previous_track else ""
     )
-    next_line = f"■ Next track (about to play): \"{current_track.title}\" by {current_track.artist}\n"
+    same_track = (
+        previous_track is not None
+        and previous_track.title == current_track.title
+        and previous_track.artist == current_track.artist
+    )
 
-    if previous_track:
+    if same_track:
+        next_line = "■ Next track (about to play): Another track from the queue\n"
+    else:
+        next_line = f"■ Next track (about to play): \"{current_track.title}\" by {current_track.artist}\n"
+
+    if previous_track and not same_track:
         structure = (
             "Structure your talk naturally around these elements (all in one flowing piece):\n"
             "1. Briefly mention the previous track in a natural way (no closing phrase)\n"
             "2. A casual chat, a joke, OR a comment tied to the time/date/weather (no need to mention them every time)\n"
             "3. Introduce the next track (\"Coming up next is [song]...\")"
+        )
+    elif previous_track and same_track:
+        structure = (
+            "Structure your talk naturally around these elements (all in one flowing piece):\n"
+            "1. Briefly mention the previous track in a natural way (no closing phrase)\n"
+            "2. A casual chat, a joke, OR a comment tied to the time/date/weather (no need to mention them every time)\n"
+            "3. Tease that another track is coming next, without naming a song title"
         )
     else:
         structure = (
@@ -282,6 +298,10 @@ def _build(
         "This radio station is called VoidFM — do not invent or use any other station name. "
         "This is a continuous endless radio program, so do NOT use sign-off/ending phrasing "
         "such as 'wrap up', 'that wraps', 'signing off', 'goodbye', or 'until next time'. "
+        "Do not say anything about yesterday or tomorrow — only the current day."
+        "Do not use any phrases that suggest the show has ended or is about to end."
+        "Do not say 'welcome to VoidFM' or similar — the listener is already tuned in. "
+        "Do not call usernames or DJ names more than once per talk, and only if it feels natural. "
         "Always complete your sentences fully — never cut off mid-thought. "
         "Output only the talk itself, no preamble.\n\n"
         f"{history_line}"

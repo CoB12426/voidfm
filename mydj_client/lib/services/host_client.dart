@@ -21,6 +21,10 @@ class HostClient {
 
   Uri _uri(String path) => Uri.parse('http://$hostAddress:$port$path');
 
+  bool _isValidTrack(TrackInfo t) {
+    return t.title.trim().isNotEmpty && t.artist.trim().isNotEmpty;
+  }
+
   /// GET /ping — 疎通確認。成功なら true。
   Future<bool> ping() async {
     final client = http.Client();
@@ -61,15 +65,23 @@ class HostClient {
     required DjPreferences preferences,
     List<TrackInfo> trackHistory = const [],
   }) async {
+    if (!_isValidTrack(currentTrack)) {
+      throw Exception('fetchTalk aborted: invalid currentTrack (empty title/artist)');
+    }
+
+    final safePreviousTrack =
+        (previousTrack != null && _isValidTrack(previousTrack)) ? previousTrack : null;
+    final safeTrackHistory = trackHistory.where(_isValidTrack).toList();
+
     final client = _client ?? http.Client();
     final owned = _client == null; // 自前で生成した場合のみ finally でclose
     try {
       final body = jsonEncode({
         'current_track': currentTrack.toJson(),
-        if (previousTrack != null) 'previous_track': previousTrack.toJson(),
+        if (safePreviousTrack != null) 'previous_track': safePreviousTrack.toJson(),
         'preferences': preferences.toJson(),
-        if (trackHistory.isNotEmpty)
-          'track_history': trackHistory.map((t) => t.toJson()).toList(),
+        if (safeTrackHistory.isNotEmpty)
+          'track_history': safeTrackHistory.map((t) => t.toJson()).toList(),
       });
 
       final response = await client
