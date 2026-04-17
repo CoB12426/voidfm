@@ -260,10 +260,7 @@ class MyNotificationListener : NotificationListenerService() {
 
                 currentDurationMs = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
 
-                if (djActive && isTrackChanged && !isUserSkipGuardActive()) {
-                    controller.transportControls.pause()
-                    Log.d(TAG, "djActive: auto-paused on metadata change")
-                } else if (isTrackChanged && isUserSkipGuardActive()) {
+                if (isTrackChanged && isUserSkipGuardActive()) {
                     Log.d(TAG, "skip guard: suppress auto-pause on metadata change")
                 }
 
@@ -288,19 +285,8 @@ class MyNotificationListener : NotificationListenerService() {
                         return
                     }
 
-                    // ── キュー位置の変化でトラック切り替えを早期検出 ──────────────
-                    // onMetadataChanged より先に届くことが多く、より早くポーズできる。
-                    val isQueueItemChange =
-                        currentQueueId  != MediaSession.QueueItem.UNKNOWN_ID.toLong() &&
-                        lastActiveQueueItemId != MediaSession.QueueItem.UNKNOWN_ID.toLong() &&
-                        currentQueueId  != lastActiveQueueItemId
-
-                    if (isQueueItemChange) {
-                        preEndPauseSentForTrack = false
-                        controller.transportControls.pause()
-                        Log.d(TAG, "djActive: auto-paused on queue item change " +
-                                "(${lastActiveQueueItemId}→${currentQueueId})")
-                    } else if (holdPlayback) {
+                    // 曲開始時の即時ポーズは行わない（終端直前介入方式へ移行）
+                    if (holdPlayback) {
                         // DJ トーク再生中: 音楽が勝手に再開しないよう抑止
                         controller.transportControls.pause()
                         Log.d(TAG, "djActive: forced pause (holdPlayback=true)")

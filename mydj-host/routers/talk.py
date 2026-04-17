@@ -38,6 +38,26 @@ def _postprocess_talk_text(text: str) -> str:
     return t
 
 
+def _clamp_talk_length(text: str, talk_length: str) -> str:
+    limits = {
+        "short": 180,
+        "medium": 320,
+        "long": 520,
+    }
+    limit = limits.get(talk_length, 320)
+    if len(text) <= limit:
+        return text
+
+    clipped = text[:limit].rstrip()
+    # 可能なら文末で切る
+    cut = max(clipped.rfind("."), clipped.rfind("!"), clipped.rfind("?"))
+    if cut >= int(limit * 0.6):
+        clipped = clipped[: cut + 1].rstrip()
+    else:
+        clipped = clipped.rstrip(" ,;:") + "."
+    return clipped
+
+
 @router.post("/talk")
 async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
     req_id = format(random.randint(0, 0xFFFF), "04x")
@@ -93,6 +113,7 @@ async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
             prompt=prompt,
         )
         talk_text = _postprocess_talk_text(talk_text)
+        talk_text = _clamp_talk_length(talk_text, talk_length)
     except Exception as exc:
         elapsed = time.perf_counter() - t_llm_start
         logger.error("[%s] ✗ LLM failed (%.1fs): %s", req_id, elapsed, exc)
