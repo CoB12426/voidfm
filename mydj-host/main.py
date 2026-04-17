@@ -30,7 +30,7 @@ def _configure_logging() -> None:
                     "datefmt": "%H:%M:%S",
                 },
                 "access": {
-                    "format": "%(asctime)s | A | %(client_addr)s | \"%(request_line)s\" %(status_code)s",
+                    "format": "%(asctime)s | A | %(message)s",
                     "datefmt": "%H:%M:%S",
                 },
             },

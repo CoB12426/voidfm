@@ -302,6 +302,8 @@ def _build(
         "Do not use any phrases that suggest the show has ended or is about to end."
         "Do not say 'welcome to VoidFM' or similar — the listener is already tuned in. "
         "Do not call usernames or DJ names more than once per talk, and only if it feels natural. "
+        "Do not mention the track history unless you can tie it into a natural comment. "
+        "Do not starts sentences with 'Hey there' or 'Hi everyone' or similar — just jump into the talk. "
         "Always complete your sentences fully — never cut off mid-thought. "
         "Output only the talk itself, no preamble.\n\n"
         f"{history_line}"
