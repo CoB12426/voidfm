@@ -27,7 +27,7 @@ if [[ ! -f "$S2_BIN" ]]; then
   if [[ ! -d "$S2_DIR/src" ]]; then
     if command -v git >/dev/null 2>&1; then
       echo "[INFO] Cloning s2.cpp..."
-      git -C "$ROOT_DIR" clone https://github.com/rodrigomatta/s2.cpp.git s2.cpp
+      git -C "$ROOT_DIR" clone --recurse-submodules https://github.com/rodrigomatta/s2.cpp.git s2.cpp
     else
       echo "[ERROR] s2.cpp not found and git is unavailable."
       exit 1
