@@ -8,31 +8,14 @@ services:
       - ollama-data:/root/.ollama
     restart: unless-stopped
 
-  fish-speech:
-    build:
-      context: ./fish-speech
-      dockerfile: docker/Dockerfile
-      target: server
-      args:
-        BACKEND: ${FISH_BACKEND:-cpu}
-        CUDA_VER: ${CUDA_VER:-12.6.3}
-        UV_EXTRA: ${UV_EXTRA:-cu126}
-        UV_VERSION: ${UV_VERSION:-0.8.15}
-    container_name: voidfm-fish-speech
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./fish-speech/checkpoints:/app/checkpoints
-      - ./fish-speech/references:/app/references
-    restart: unless-stopped
-
   mydj-host:
     build:
-      context: ./mydj-host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: mydj-host/Dockerfile
+      args:
+        BACKEND: ${BACKEND:-cpu}
     container_name: voidfm-host
     depends_on:
-      - fish-speech
       - ollama
     ports:
       - "8000:8000"

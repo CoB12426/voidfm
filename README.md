@@ -64,14 +64,19 @@ cd voidfm
 docker exec -it voidfm-ollama ollama pull llama3.2:1b
 ```
 
-**② TTS モデル（fish-speech）：**
+**② TTS モデル（GGUF）：**
+
+`models/` ディレクトリに以下のファイルを配置してください：
+
+- `s2-pro-q4_k_m.gguf`
 
 ```bash
-pip install -U huggingface_hub
-python -c "from huggingface_hub import snapshot_download; snapshot_download('fishaudio/fish-speech-1.5', local_dir='fish-speech/checkpoints/s2-pro', local_dir_use_symlinks=False)"
+# models/ ディレクトリがなければ作成
+mkdir -p models
+# s2-pro-q4_k_m.gguf をここに配置
 ```
 
-> ダウンロード後は `docker restart voidfm-fish-speech` でコンテナを再起動してください。
+> モデルの入手方法は別途配布されるリリースノートを参照してください。
 
 ### ステップ 5：アプリで接続
 
@@ -137,9 +142,10 @@ docker compose -f docker-compose.all.yml up -d --build
 
 | コンポーネント | 役割 | ポート |
 |-------------|------|-------|
-| `mydj-host` | API サーバー（LLM 呼び出し・TTS 制御） | 8000 |
-| `fish-speech` | TTS（音声合成）サーバー | 8080 |
+| `mydj-host` | API サーバー（LLM 呼び出し・TTS 制御） + s2.cpp TTS | 8000 |
 | `ollama` | LLM（テキスト生成）サーバー | 11434 |
+
+TTS（音声合成）は `mydj-host` コンテナ内の s2.cpp（GGUF）を使用します。
 
 ---
 

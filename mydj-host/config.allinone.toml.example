@@ -8,10 +8,10 @@ ollama_url = "http://ollama:11434"
 default_model = "llama3.2"
 
 [tts]
-# all-in-one は fish-speech HTTP を使う
-mode = "http"
-fish_speech_url = "http://fish-speech:8080"
-default_speaker = "default"
+mode = "subprocess"
+s2_binary    = "/app/s2"
+s2_model     = "/models/s2-pro-q4_k_m.gguf"
+s2_tokenizer = "/app/tokenizer.json"
 # 転送フォーマット: mp3（推奨・軽量）/ wav / opus
 audio_format = "mp3"
 
