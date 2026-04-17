@@ -279,6 +279,7 @@ def _build(
         f"You are {persona}. {style}\n"
         f"{name_line}{username_line}"
         "The music is paused. Deliver a between-song DJ talk in English. "
+        "This radio station is called VoidFM — do not invent or use any other station name. "
         "This is a continuous endless radio program, so do NOT use sign-off/ending phrasing "
         "such as 'wrap up', 'that wraps', 'signing off', 'goodbye', or 'until next time'. "
         "Always complete your sentences fully — never cut off mid-thought. "
