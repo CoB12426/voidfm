@@ -16,25 +16,21 @@ _TIMEOUT_TTS = 180.0
 _tts_semaphore = asyncio.Semaphore(1)
 
 
-async def synthesize_speech(
-    cfg: dict,
-    text: str,
-    dj_voice: str = "default",
-) -> bytes:
+async def synthesize_speech(cfg: dict, text: str) -> bytes:
     mode = cfg["tts"].get("mode", "http")
     if mode == "subprocess":
-        return await _synthesize_subprocess(cfg, text, dj_voice)
+        return await _synthesize_subprocess(cfg, text)
     else:
-        return await _synthesize_http(cfg, text, dj_voice)
+        return await _synthesize_http(cfg, text)
 
 
 # ---------------------------------------------------------------------------
 # HTTP モード（fish-speech API サーバー）
 # ---------------------------------------------------------------------------
 
-async def _synthesize_http(cfg: dict, text: str, dj_voice: str = "default") -> bytes:
+async def _synthesize_http(cfg: dict, text: str) -> bytes:
     fish_speech_url: str = cfg["tts"]["fish_speech_url"]
-    speaker: str = dj_voice if dj_voice != "default" else cfg["tts"].get("default_speaker", "default")
+    speaker: str = cfg["tts"].get("default_speaker", "default")
     audio_format: str = cfg["tts"].get("audio_format", "mp3")
 
     url = f"{fish_speech_url.rstrip('/')}/v1/tts"
@@ -47,9 +43,9 @@ async def _synthesize_http(cfg: dict, text: str, dj_voice: str = "default") -> b
         payload["reference_id"] = speaker
 
     logger.info("TTS HTTP: speaker=%s, format=%s, text_length=%d", speaker, audio_format, len(text))
-    
+
     client = llm_client._get_http_client()
-    for attempt in range(2):  # 最大2回リトライ
+    for attempt in range(2):
         try:
             response = await client.post(url, json=payload, timeout=_TIMEOUT_TTS)
             response.raise_for_status()
@@ -74,37 +70,27 @@ async def _synthesize_http(cfg: dict, text: str, dj_voice: str = "default") -> b
 # subprocess モード（s2.cpp バイナリ直接呼び出し）
 # ---------------------------------------------------------------------------
 
-async def _synthesize_subprocess(cfg: dict, text: str, dj_voice: str = "default") -> bytes:
+async def _synthesize_subprocess(cfg: dict, text: str) -> bytes:
     async with _tts_semaphore:
-        return await _synthesize_subprocess_inner(cfg, text, dj_voice)
+        return await _synthesize_subprocess_inner(cfg, text)
 
 
-async def _synthesize_subprocess_inner(cfg: dict, text: str, dj_voice: str = "default") -> bytes:
+async def _synthesize_subprocess_inner(cfg: dict, text: str) -> bytes:
     binary: str = cfg["tts"]["s2_binary"]
     model: str = cfg["tts"]["s2_model"]
     tokenizer: str = cfg["tts"]["s2_tokenizer"]
 
-    # voice ごとの reference audio パスを解決
-    # config.toml で [tts.voices] male = "/path/to/male.wav" のように設定
-    ref_audio: str | None = None
-    if dj_voice != "default":
-        voices: dict = cfg["tts"].get("voices", {})
-        ref_audio = voices.get(dj_voice)
-
-    # 途中で切れた読み上げを避けるため、ここではテキストを切り詰めない。
-    # 長文制御はプロンプト側（talk_length 指示）で行う。
-
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         output_path = tmp.name
 
-    # GPU デバイス設定（config.toml の [tts] cuda_device で指定、-1 で CPU のみ）
     cuda_device: int = cfg["tts"].get("cuda_device", 0)
+    ref_audio: str | None = cfg["tts"].get("default_ref_audio")
 
     cmd = [binary, "-m", model, "-t", tokenizer, "-text", text, "-o", output_path]
     if cuda_device >= 0:
-        cmd += ["-c", str(cuda_device)]  # CUDA GPU を使用
+        cmd += ["-c", str(cuda_device)]
     if ref_audio:
-        cmd += ["-pa", ref_audio]  # -ref → -pa (prompt audio)
+        cmd += ["-pa", ref_audio]
 
     logger.info("TTS subprocess: %s", " ".join(cmd))
 

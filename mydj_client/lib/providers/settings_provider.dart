@@ -8,11 +8,13 @@ class SettingsProvider extends ChangeNotifier {
   static const _keyHostAddress   = 'host_address';
   static const _keyPort          = 'port';
   static const _keyLlmModel     = 'llm_model';
-  static const _keyLanguage     = 'language';
   static const _keyTalkLength   = 'talk_length';
-  static const _keyDjVoice      = 'dj_voice';
   static const _keyWeatherCity  = 'weather_city';
   static const _keyPersonality  = 'personality';
+  static const _keyUsername     = 'username';
+  static const _keyDjName       = 'dj_name';
+  static const _keyCustomPrompt = 'custom_prompt';
+  static const _keyTalkFrequency = 'talk_frequency';
 
   String _hostAddress = '';
   int _port = 8000;
@@ -31,12 +33,14 @@ class SettingsProvider extends ChangeNotifier {
     _hostAddress = prefs.getString(_keyHostAddress) ?? '';
     _port = prefs.getInt(_keyPort) ?? 8000;
     _djPreferences = DjPreferences(
-      llmModel:    prefs.getString(_keyLlmModel),
-      language:    prefs.getString(_keyLanguage)    ?? 'ja',
-      talkLength:  prefs.getString(_keyTalkLength)  ?? 'medium',
-      djVoice:     prefs.getString(_keyDjVoice)     ?? 'default',
-      weatherCity: prefs.getString(_keyWeatherCity) ?? '',
-      personality: prefs.getString(_keyPersonality) ?? 'standard',
+      llmModel:     prefs.getString(_keyLlmModel),
+      talkLength:   prefs.getString(_keyTalkLength)    ?? 'medium',
+      weatherCity:  prefs.getString(_keyWeatherCity)   ?? '',
+      personality:  prefs.getString(_keyPersonality)   ?? 'standard',
+      username:     prefs.getString(_keyUsername)      ?? '',
+      djName:       prefs.getString(_keyDjName)        ?? '',
+      customPrompt: prefs.getString(_keyCustomPrompt)  ?? '',
+      talkFrequency: prefs.getInt(_keyTalkFrequency)   ?? 1,
     );
     _connectionStatus = ConnectionStatus.unconfigured;
     notifyListeners();
@@ -55,11 +59,13 @@ class SettingsProvider extends ChangeNotifier {
     _djPreferences = prefs;
     final sp = await SharedPreferences.getInstance();
     if (prefs.llmModel != null) await sp.setString(_keyLlmModel, prefs.llmModel!);
-    await sp.setString(_keyLanguage,    prefs.language);
-    await sp.setString(_keyTalkLength,  prefs.talkLength);
-    await sp.setString(_keyDjVoice,     prefs.djVoice);
-    await sp.setString(_keyWeatherCity, prefs.weatherCity);
-    await sp.setString(_keyPersonality, prefs.personality);
+    await sp.setString(_keyTalkLength,    prefs.talkLength);
+    await sp.setString(_keyWeatherCity,   prefs.weatherCity);
+    await sp.setString(_keyPersonality,   prefs.personality);
+    await sp.setString(_keyUsername,      prefs.username);
+    await sp.setString(_keyDjName,        prefs.djName);
+    await sp.setString(_keyCustomPrompt,  prefs.customPrompt);
+    await sp.setInt(_keyTalkFrequency,    prefs.talkFrequency);
     notifyListeners();
   }
 

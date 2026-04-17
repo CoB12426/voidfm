@@ -1,43 +1,52 @@
 class DjPreferences {
   final String? llmModel;
-  final String language;       // "ja" | "en"
   final String talkLength;     // "short" | "medium" | "long"
-  final String djVoice;        // "default" | "JAMES" | "E-GIRL" | "ETHAN" etc.
   final String weatherCity;    // 天気取得用の都市名または "lat,lon" 座標（空文字 = サーバーデフォルト）
   final String personality;    // "standard" | "energetic" | "chill" | "intellectual" | "comedian"
+  final String username;       // リスナーの名前（空文字 = 未設定）
+  final String djName;         // DJの名前（空文字 = 未設定）
+  final String customPrompt;   // カスタム指示（空文字 = なし）
+  final int talkFrequency;     // トーク頻度: N曲ごとに1回（1 = 毎曲）
 
   const DjPreferences({
     this.llmModel,
-    this.language = 'ja',
     this.talkLength = 'medium',
-    this.djVoice = 'default',
     this.weatherCity = '',
     this.personality = 'standard',
+    this.username = '',
+    this.djName = '',
+    this.customPrompt = '',
+    this.talkFrequency = 1,
   });
 
   DjPreferences copyWith({
     String? llmModel,
-    String? language,
     String? talkLength,
-    String? djVoice,
     String? weatherCity,
     String? personality,
+    String? username,
+    String? djName,
+    String? customPrompt,
+    int? talkFrequency,
   }) =>
       DjPreferences(
         llmModel: llmModel ?? this.llmModel,
-        language: language ?? this.language,
         talkLength: talkLength ?? this.talkLength,
-        djVoice: djVoice ?? this.djVoice,
         weatherCity: weatherCity ?? this.weatherCity,
         personality: personality ?? this.personality,
+        username: username ?? this.username,
+        djName: djName ?? this.djName,
+        customPrompt: customPrompt ?? this.customPrompt,
+        talkFrequency: talkFrequency ?? this.talkFrequency,
       );
 
   Map<String, dynamic> toJson() => {
         if (llmModel != null) 'llm_model': llmModel,
-        'language': language,
         'talk_length': talkLength,
-        'dj_voice': djVoice,
         if (weatherCity.isNotEmpty) 'weather_city': weatherCity,
         'personality': personality,
+        if (username.isNotEmpty) 'username': username,
+        if (djName.isNotEmpty) 'dj_name': djName,
+        if (customPrompt.isNotEmpty) 'custom_prompt': customPrompt,
       };
 }

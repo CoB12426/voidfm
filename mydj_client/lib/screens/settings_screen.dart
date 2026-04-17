@@ -15,9 +15,12 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _hostCtrl = TextEditingController();
-  final _portCtrl = TextEditingController();
-  final _cityCtrl = TextEditingController();
+  final _hostCtrl         = TextEditingController();
+  final _portCtrl         = TextEditingController();
+  final _cityCtrl         = TextEditingController();
+  final _usernameCtrl     = TextEditingController();
+  final _djNameCtrl       = TextEditingController();
+  final _customPromptCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
   bool _isTesting = false;
@@ -26,10 +29,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   HostConfig? _hostConfig;
 
   String? _selectedModel;
-  String _language = 'ja';
   String _talkLength = 'medium';
-  String _djVoice = 'default';
   String _personality = 'standard';
+  int _talkFrequency = 1;
 
   static const _personalityItems = ['standard', 'energetic', 'chill', 'intellectual', 'comedian'];
   static const _personalityLabels = ['スタンダード', 'ハイテンション', 'チル', 'インテリ', 'お笑い系'];
@@ -42,11 +44,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _portCtrl.text = settings.port.toString();
     final prefs = settings.djPreferences;
     _selectedModel = prefs.llmModel;
-    _language = prefs.language;
     _talkLength = prefs.talkLength;
-    _djVoice = prefs.djVoice;
     _personality = prefs.personality;
-    _cityCtrl.text = prefs.weatherCity;
+    _cityCtrl.text         = prefs.weatherCity;
+    _usernameCtrl.text     = prefs.username;
+    _djNameCtrl.text       = prefs.djName;
+    _customPromptCtrl.text = prefs.customPrompt;
+    _talkFrequency         = prefs.talkFrequency;
   }
 
   @override
@@ -54,6 +58,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _hostCtrl.dispose();
     _portCtrl.dispose();
     _cityCtrl.dispose();
+    _usernameCtrl.dispose();
+    _djNameCtrl.dispose();
+    _customPromptCtrl.dispose();
     super.dispose();
   }
 
@@ -149,12 +156,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       int.tryParse(_portCtrl.text.trim()) ?? 8000,
     );
     await settings.saveDjPreferences(DjPreferences(
-      llmModel: _selectedModel,
-      language: _language,
-      talkLength: _talkLength,
-      djVoice: _djVoice,
-      weatherCity: _cityCtrl.text.trim(),
-      personality: _personality,
+      llmModel:     _selectedModel,
+      talkLength:   _talkLength,
+      weatherCity:  _cityCtrl.text.trim(),
+      personality:  _personality,
+      username:     _usernameCtrl.text.trim(),
+      djName:       _djNameCtrl.text.trim(),
+      customPrompt: _customPromptCtrl.text.trim(),
+      talkFrequency: _talkFrequency,
     ));
     if (mounted) Navigator.pop(context);
   }
@@ -245,15 +254,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
 
               _dropdown(
-                label: 'Language',
-                value: _language,
-                items: const ['ja', 'en'],
-                labels: const ['日本語', 'English'],
-                onChanged: (v) => setState(() => _language = v!),
-              ),
-              const SizedBox(height: 12),
-
-              _dropdown(
                 label: 'Talk Length',
                 value: _talkLength,
                 items: const ['short', 'medium', 'long'],
@@ -272,11 +272,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
 
               _dropdown(
-                label: 'DJ Voice',
-                value: _djVoice,
-                items: const ['default', 'JAMES', 'E-GIRL', 'ETHAN'],
-                labels: const ['Default', 'JAMES', 'E-GIRL', 'ETHAN'],
-                onChanged: (v) => setState(() => _djVoice = v!),
+                label: 'Talk Frequency',
+                value: _talkFrequency.toString(),
+                items: const ['1', '2', '3', '4', '5'],
+                labels: const [
+                  'Every song',
+                  'Every 2 songs',
+                  'Every 3 songs',
+                  'Every 4 songs',
+                  'Every 5 songs',
+                ],
+                onChanged: (v) => setState(() => _talkFrequency = int.parse(v!)),
+              ),
+              const SizedBox(height: 12),
+
+              TextFormField(
+                controller: _djNameCtrl,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'DJ Name',
+                  hintText: 'e.g. Nova',
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Optional. The DJ will introduce themselves by this name.',
+                style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF555555)),
+              ),
+
+              const SizedBox(height: 40),
+
+              // ---- LISTENER ----
+              _sectionLabel('LISTENER'),
+              const SizedBox(height: 12),
+
+              TextFormField(
+                controller: _usernameCtrl,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'Your Name',
+                  hintText: 'e.g. Alex',
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Optional. The DJ will occasionally call you by name.',
+                style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF555555)),
               ),
 
               const SizedBox(height: 40),
@@ -311,6 +352,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 6),
               Text(
                 'Leave empty to use server default. GPS fills in coordinates.',
+                style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF555555)),
+              ),
+
+              const SizedBox(height: 40),
+
+              // ---- CUSTOM PROMPT ----
+              _sectionLabel('CUSTOM PROMPT'),
+              const SizedBox(height: 12),
+
+              TextFormField(
+                controller: _customPromptCtrl,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'Additional Instructions',
+                  hintText: 'e.g. This is a study session. Keep the mood calm and focused.',
+                  alignLabelWithHint: true,
+                ),
+                maxLines: 4,
+                minLines: 2,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Optional. Appended to every DJ prompt as extra instructions.',
                 style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF555555)),
               ),
 

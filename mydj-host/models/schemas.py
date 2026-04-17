@@ -19,18 +19,20 @@ class TrackInfo(BaseModel):
 
 class DjPreferences(BaseModel):
     llm_model: Optional[str] = None
-    language: Optional[str] = None       # "ja" | "en"
     talk_length: Optional[str] = None    # "short" | "medium" | "long"
-    dj_voice: Optional[str] = None       # "default" | "JAMES" | "E-GIRL" | "ETHAN"
     weather_city: Optional[str] = None   # city name or "lat,lon"; overrides config.toml
     personality: Optional[str] = None    # "standard" | "energetic" | "chill" | "intellectual" | "comedian"
+    username: Optional[str] = None       # リスナーの名前（任意）
+    dj_name: Optional[str] = None        # DJの名前（任意）
+    custom_prompt: Optional[str] = None  # ユーザーカスタム指示（任意）
 
 
 class TalkRequest(BaseModel):
-    current_track: TrackInfo                    # 次の曲（void talk 後に再生される曲）
-    previous_track: Optional[TrackInfo] = None  # 直前に終わった曲
+    current_track: TrackInfo                         # 次の曲（void talk 後に再生される曲）
+    previous_track: Optional[TrackInfo] = None       # 直前に終わった曲
     preferences: Optional[DjPreferences] = None
-    is_mid_song: bool = False                   # 廃止予定、互換性のため残す
+    is_mid_song: bool = False                        # 廃止予定、互換性のため残す
+    track_history: Optional[list[TrackInfo]] = None  # 直近の再生履歴（古い順）
 
 
 class PingResponse(BaseModel):

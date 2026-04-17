@@ -59,14 +59,17 @@ class HostClient {
     required TrackInfo currentTrack,
     TrackInfo? previousTrack,
     required DjPreferences preferences,
+    List<TrackInfo> trackHistory = const [],
   }) async {
     final client = _client ?? http.Client();
     final owned = _client == null; // 自前で生成した場合のみ finally でclose
     try {
       final body = jsonEncode({
-        'current_track':                   currentTrack.toJson(),
+        'current_track': currentTrack.toJson(),
         if (previousTrack != null) 'previous_track': previousTrack.toJson(),
-        'preferences':             preferences.toJson(),
+        'preferences': preferences.toJson(),
+        if (trackHistory.isNotEmpty)
+          'track_history': trackHistory.map((t) => t.toJson()).toList(),
       });
 
       final response = await client
@@ -80,6 +83,24 @@ class HostClient {
       if (response.statusCode != 200) {
         final detail = _extractDetail(response.body);
         throw Exception('fetchTalk failed (${response.statusCode}): $detail');
+      }
+      return response.bodyBytes;
+    } finally {
+      if (owned) client.close();
+    }
+  }
+
+  /// GET /station_id — ステーションIDの音声を取得。
+  Future<Uint8List> fetchStationId() async {
+    final client = _client ?? http.Client();
+    final owned = _client == null;
+    try {
+      final response = await client
+          .get(_uri('/station_id'))
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200) {
+        final detail = _extractDetail(response.body);
+        throw Exception('fetchStationId failed (${response.statusCode}): $detail');
       }
       return response.bodyBytes;
     } finally {

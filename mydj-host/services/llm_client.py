@@ -46,6 +46,7 @@ async def generate_text(
         "model": model,
         "prompt": prompt,
         "stream": False,
+        "keep_alive": 0,  # モデルをメモリに保持し続ける
     }
     logger.info("Requesting LLM: model=%s", model)
     

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-_EN_CLOSING_PATTERNS: tuple[str, ...] = (
+_CLOSING_PATTERNS: tuple[str, ...] = (
     r"\bwrap(?:ping)?\s+up\b",
     r"\bthat\s+wraps\b",
     r"\bsigning\s+off\b",
@@ -26,31 +26,15 @@ _EN_CLOSING_PATTERNS: tuple[str, ...] = (
     r"\buntil\s+next\s+time\b",
 )
 
-_JA_CLOSING_PATTERNS: tuple[str, ...] = (
-    r"締めくく(?:り|ります?)",
-    r"それではまた",
-    r"また次回",
-    r"またお会いしましょう",
-)
 
-
-def _postprocess_talk_text(text: str, language: str) -> str:
+def _postprocess_talk_text(text: str) -> str:
     t = re.sub(r"\s+", " ", text).strip()
-
-    patterns = _JA_CLOSING_PATTERNS if language == "ja" else _EN_CLOSING_PATTERNS
-    for p in patterns:
-        t = re.sub(p, "", t, flags=re.IGNORECASE).strip(" ,。.!?\t\n")
-
+    for p in _CLOSING_PATTERNS:
+        t = re.sub(p, "", t, flags=re.IGNORECASE).strip(" ,.!?\t\n")
     if not t:
-        return "次の曲をどうぞ。" if language == "ja" else "Here comes the next track."
-
-    if language == "ja":
-        if t[-1] not in "。！？":
-            t = f"{t}。"
-    else:
-        if t[-1] not in ".!?":
-            t = f"{t}."
-
+        return "Here comes the next track."
+    if t[-1] not in ".!?":
+        t = f"{t}."
     return t
 
 
@@ -62,27 +46,22 @@ async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
     cfg = get_config()
 
     prefs = body.preferences
-    llm_model   = (prefs.llm_model    if prefs and prefs.llm_model    else None) or cfg["llm"]["default_model"]
-    language    = (prefs.language     if prefs and prefs.language     else None) or cfg["dj"]["default_language"]
-    talk_length = (prefs.talk_length  if prefs and prefs.talk_length  else None) or cfg["dj"]["default_talk_length"]
-    dj_voice    = (prefs.dj_voice     if prefs and prefs.dj_voice     else None) or cfg["dj"].get("default_voice", "default")
-    weather_city = (prefs.weather_city if prefs and prefs.weather_city else None)
-    personality  = (prefs.personality  if prefs and prefs.personality  else None)
+    llm_model   = (prefs.llm_model   if prefs and prefs.llm_model   else None) or cfg["llm"]["default_model"]
+    talk_length = (prefs.talk_length if prefs and prefs.talk_length else None) or cfg["dj"]["default_talk_length"]
+    weather_city  = (prefs.weather_city  if prefs and prefs.weather_city  else None)
+    personality   = (prefs.personality   if prefs and prefs.personality   else None)
+    username      = (prefs.username      if prefs and prefs.username      else None)
+    dj_name       = (prefs.dj_name       if prefs and prefs.dj_name       else None)
+    custom_prompt = (prefs.custom_prompt if prefs and prefs.custom_prompt else None)
 
-    valid_languages = ["ja", "en"]
-    if language not in valid_languages:
-        language = cfg["dj"]["default_language"]
-
-    valid_lengths = ["short", "medium", "long"]
-    if talk_length not in valid_lengths:
+    if talk_length not in ("short", "medium", "long"):
         talk_length = cfg["dj"]["default_talk_length"]
 
     logger.info(
-        "[%s] ← track=%r  prev=%r  lang=%s  length=%s",
+        "[%s] ← track=%r  prev=%r  length=%s",
         req_id,
         body.current_track.title,
         body.previous_track.title if body.previous_track else None,
-        language,
         talk_length,
     )
 
@@ -91,16 +70,19 @@ async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
         prompt = await prompt_builder.build_prompt(
             current_track=body.current_track,
             previous_track=body.previous_track,
-            language=language,
             talk_length=talk_length,
             personality=personality,
             is_mid_song=body.is_mid_song,
             cfg=cfg,
             weather_city=weather_city,
+            username=username,
+            dj_name=dj_name,
+            custom_prompt=custom_prompt,
+            track_history=body.track_history,
         )
     except Exception as exc:
         logger.exception("[%s] ✗ prompt build failed", req_id)
-        raise HTTPException(status_code=500, detail=f"プロンプト構築失敗: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"prompt build failed: {exc}") from exc
 
     # ── LLM テキスト生成 ─────────────────────────────────────────────────
     t_llm_start = time.perf_counter()
@@ -110,11 +92,11 @@ async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
             model=llm_model,
             prompt=prompt,
         )
-        talk_text = _postprocess_talk_text(talk_text, language)
+        talk_text = _postprocess_talk_text(talk_text)
     except Exception as exc:
         elapsed = time.perf_counter() - t_llm_start
         logger.error("[%s] ✗ LLM failed (%.1fs): %s", req_id, elapsed, exc)
-        raise HTTPException(status_code=500, detail=f"LLM 生成失敗: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"LLM failed: {exc}") from exc
 
     t_llm_done = time.perf_counter()
     logger.info(
@@ -133,15 +115,11 @@ async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
     # ── TTS 音声合成 ──────────────────────────────────────────────────────
     t_tts_start = time.perf_counter()
     try:
-        audio_bytes = await tts_client.synthesize_speech(
-            cfg=cfg,
-            text=talk_text,
-            dj_voice=dj_voice,
-        )
+        audio_bytes = await tts_client.synthesize_speech(cfg=cfg, text=talk_text)
     except Exception as exc:
         elapsed = time.perf_counter() - t_tts_start
         logger.error("[%s] ✗ TTS failed (%.1fs): %s", req_id, elapsed, exc)
-        raise HTTPException(status_code=500, detail=f"TTS 生成失敗: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"TTS failed: {exc}") from exc
 
     t_tts_done = time.perf_counter()
     audio_format = cfg["tts"].get("audio_format", "mp3")
