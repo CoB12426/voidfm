@@ -28,11 +28,29 @@ if [[ ! -d "$FISH_DIR" ]]; then
 fi
 
 cd "$ROOT_DIR"
-docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
+
+GPU_ENABLED=0
+if command -v nvidia-smi >/dev/null 2>&1; then
+  if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q '"nvidia"'; then
+    GPU_ENABLED=1
+  fi
+fi
+
+if [[ "$GPU_ENABLED" -eq 1 ]]; then
+  docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
+else
+  echo "[WARN] NVIDIA runtime is not available. Falling back to CPU mode."
+  echo "       To enable GPU, install NVIDIA Container Toolkit and restart Docker."
+  docker compose -f docker-compose.all.yml up -d --build
+fi
 
 echo "[OK] All services started"
 echo "  - mydj-host:   http://localhost:8000"
 echo "  - fish-speech: http://localhost:8080"
 echo "  - ollama:      http://localhost:11434"
-echo "[INFO] Started with GPU profile (docker-compose.gpu.yml)."
+if [[ "$GPU_ENABLED" -eq 1 ]]; then
+  echo "[INFO] Started with GPU profile (docker-compose.gpu.yml)."
+else
+  echo "[INFO] Started with CPU profile (docker-compose.all.yml)."
+fi
 echo "[NOTE] For first run, pull a model inside ollama container (example: llama3.2)."
