@@ -10,10 +10,8 @@ services:
 
   mydj-host:
     build:
-      context: .
-      dockerfile: mydj-host/Dockerfile
-      args:
-        BACKEND: ${BACKEND:-cpu}
+      context: ./mydj-host
+      dockerfile: Dockerfile
     container_name: voidfm-host
     depends_on:
       - ollama

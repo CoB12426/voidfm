@@ -19,12 +19,17 @@ fi
 # models/ ディレクトリを事前作成（Docker がroot所有で作らないように）
 mkdir -p "$MODELS_DIR"
 
-# GGUFモデルの存在チェック
-GGUF_PATH="$MODELS_DIR/s2-pro-q4_k_m.gguf"
-if [[ ! -f "$GGUF_PATH" ]]; then
-  echo "[WARN] TTS model not found: $GGUF_PATH"
-  echo "       Place s2-pro-q4_k_m.gguf in the models/ directory before using TTS."
-  echo "       See README.md for download instructions."
+# modelsディレクトリ内の必要ファイルを確認
+MISSING=0
+for REQUIRED in s2 s2-pro-q4_k_m.gguf tokenizer.json; do
+  if [[ ! -f "$MODELS_DIR/$REQUIRED" ]]; then
+    echo "[WARN] TTS file not found: models/$REQUIRED"
+    MISSING=1
+  fi
+done
+if [[ "$MISSING" -eq 1 ]]; then
+  echo "       Place the required files in the models/ directory before using TTS."
+  echo "       See README.md for instructions."
 fi
 
 cd "$ROOT_DIR"

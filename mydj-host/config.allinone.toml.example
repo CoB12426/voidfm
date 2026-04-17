@@ -9,9 +9,9 @@ default_model = "llama3.2"
 
 [tts]
 mode = "subprocess"
-s2_binary    = "/app/s2"
+s2_binary    = "/models/s2"
 s2_model     = "/models/s2-pro-q4_k_m.gguf"
-s2_tokenizer = "/app/tokenizer.json"
+s2_tokenizer = "/models/tokenizer.json"
 # 転送フォーマット: mp3（推奨・軽量）/ wav / opus
 audio_format = "mp3"
 

@@ -8,18 +8,6 @@
 #     (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
 
 services:
-  mydj-host:
-    build:
-      args:
-        BACKEND: cuda
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
   ollama:
     deploy:
       resources:

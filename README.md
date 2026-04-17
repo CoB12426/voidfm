@@ -64,19 +64,23 @@ cd voidfm
 docker exec -it voidfm-ollama ollama pull llama3.2:1b
 ```
 
-**② TTS モデル（GGUF）：**
+**② TTS ファイルの配置：**
 
-`models/` ディレクトリに以下のファイルを配置してください：
+`models/` ディレクトリに以下の3ファイルを配置してください：
 
-- `s2-pro-q4_k_m.gguf`
+| ファイル | 説明 |
+|---|---|
+| `s2` | s2.cpp 実行バイナリ（Linux） |
+| `s2-pro-q4_k_m.gguf` | TTS モデル（GGUF） |
+| `tokenizer.json` | トークナイザー |
 
 ```bash
-# models/ ディレクトリがなければ作成
 mkdir -p models
-# s2-pro-q4_k_m.gguf をここに配置
+# 上記3ファイルを models/ に配置
+chmod +x models/s2
 ```
 
-> モデルの入手方法は別途配布されるリリースノートを参照してください。
+> ファイルの入手方法は別途配布されるリリースノートを参照してください。
 
 ### ステップ 5：アプリで接続
 
