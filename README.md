@@ -67,7 +67,7 @@ cd voidfm
 **① LLM モデル（Ollama）：**
 
 ```bash
-docker exec -it voidfm-ollama ollama pull llama3.2
+docker exec -it voidfm-ollama ollama pull llama3.2:1b
 ```
 
 **② TTS モデル（fish-speech）：**
