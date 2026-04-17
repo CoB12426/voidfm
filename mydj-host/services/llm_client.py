@@ -48,7 +48,7 @@ async def generate_text(
         "stream": False,
         "keep_alive": 0,  # モデルをメモリに保持し続ける
     }
-    logger.info("Requesting LLM: model=%s", model)
+    logger.debug("Requesting LLM: model=%s", model)
     
     client = _get_http_client()
     for attempt in range(_MAX_RETRIES + 1):
@@ -57,7 +57,7 @@ async def generate_text(
             response.raise_for_status()
             data = response.json()
             text: str = data.get("response", "").strip()
-            logger.info("LLM response length: %d chars", len(text))
+            logger.debug("LLM response length: %d chars", len(text))
             return text
         except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
             if attempt < _MAX_RETRIES:

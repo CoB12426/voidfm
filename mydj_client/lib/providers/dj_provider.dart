@@ -9,6 +9,8 @@ import '../services/host_client.dart';
 import '../services/audio_service.dart';
 import '../services/notification_service.dart';
 
+enum _PlannedTalkType { none, dj, stationId, radioAll }
+
 /// DJ トークのライフサイクルを管理するプロバイダー。
 ///
 /// ─ フロー ─
@@ -74,9 +76,14 @@ class DjProvider extends ChangeNotifier {
   Completer<Uint8List?>? _ttsCompleter;
   TrackInfo? _ttsForTrack;          // 生成対象の currentTrack
   TrackInfo? _ttsNextTrack;         // 生成開始時に使った nextTrack
+  String? _ttsRequestKey;           // 生成要求キー（同一条件の重複生成防止）
   http.Client? _ttsHttpClient;      // 進行中リクエストのキャンセル用
   List<TrackInfo> _ttsHistory = []; // 生成開始時の履歴スナップショット
   bool _prependJingle = false;      // station ID 再生前に jingle.mp3 を挟む
+
+  // 楽曲開始時に「次の void talk 種別」を1回だけ確定する
+  _PlannedTalkType _plannedTalkType = _PlannedTalkType.none;
+  TrackInfo? _plannedForTrack;
 
   // ── 設定 ─────────────────────────────────────────────────────────────
   String        _hostAddress = '';
@@ -144,6 +151,8 @@ class DjProvider extends ChangeNotifier {
       _isOnAir          = false;
       _awaitingMusic    = false;
       _songsSinceTalk   = 0;
+      _plannedTalkType  = _PlannedTalkType.none;
+      _plannedForTrack  = null;
       _cancelTts();
       if (_isPlayingTalk) {
         await _audio.stop();
@@ -212,8 +221,8 @@ class DjProvider extends ChangeNotifier {
     // ── 楽曲開始待機中の最初の曲 ─────────────────────────────────────
     if (_awaitingMusic) {
       _awaitingMusic = false;
-      debugPrint('DjProvider: first track arrived, starting TTS generation');
-      _startTtsGeneration();
+      _planNextTalkForCurrentTrack();
+      _preparePlannedTalkForCurrentTrack();
       return;
     }
 
@@ -222,8 +231,10 @@ class DjProvider extends ChangeNotifier {
     _suppressNextTalk = false;
 
     if (isUserSkip) {
-      debugPrint('DjProvider: user skip — cancel TTS, start new generation');
+      debugPrint('DjProvider: user skip — cancel TTS, re-plan for new track');
       _cancelTts();
+      _plannedTalkType = _PlannedTalkType.none;
+      _plannedForTrack = null;
       if (_isPlayingTalk) {
         // void talk 再生中にスキップ → 中断して音楽へ
         // finallyブロックが resumeMusic / holdPlayback解除を担う
@@ -233,7 +244,8 @@ class DjProvider extends ChangeNotifier {
       }
       // void talk 未再生: Android の自動ポーズを解除
       await _restoreMusicPlayback();
-      _startTtsGeneration();
+      _planNextTalkForCurrentTrack();
+      _preparePlannedTalkForCurrentTrack();
       return;
     }
 
@@ -247,21 +259,23 @@ class DjProvider extends ChangeNotifier {
     // ── 楽曲終了（自然） ──────────────────────────────────────────────
     debugPrint('DjProvider: checking void talk conditions —'
         ' prevTrack=$prevTrack,'
+        ' plannedFor=$_plannedForTrack,'
+        ' plannedType=$_plannedTalkType,'
         ' _ttsCompleter=$_ttsCompleter,'
         ' _ttsForTrack=$_ttsForTrack,'
         ' prevTrack==_ttsForTrack=${prevTrack == _ttsForTrack},'
         ' isCompleted=${_ttsCompleter?.isCompleted}');
-    
-    // トーク頻度チェック（自然終了時のみカウント）
-    final shouldTalk = _checkTalkFrequency();
 
-    if (!shouldTalk) {
-      debugPrint('DjProvider: skipping talk (frequency=${_preferences.talkFrequency}, '
-          'count=$_songsSinceTalk)');
+    final planForPrev = (prevTrack != null && _plannedForTrack == prevTrack)
+        ? _plannedTalkType
+        : _PlannedTalkType.none;
+
+    if (planForPrev == _PlannedTalkType.none) {
+      debugPrint('DjProvider: skipping talk (planned=none)');
       _cancelTts();
       await _restoreMusicPlayback();
-    } else if (_shouldPlayRadioAll()) {
-      debugPrint('DjProvider: radio4all ($_talkPlayCount)');
+    } else if (planForPrev == _PlannedTalkType.radioAll) {
+      debugPrint('DjProvider: play radio4all ($_talkPlayCount)');
       _cancelTts();
       await _playAssetTalk(_radioAllAsset);
     } else if (prevTrack != null &&
@@ -297,8 +311,9 @@ class DjProvider extends ChangeNotifier {
       await _restoreMusicPlayback();
     }
 
-    // 次の曲変わりに向けて TTS 生成を開始
-    _startTtsGeneration();
+    // 次の曲向けに計画を確定して準備開始
+    _planNextTalkForCurrentTrack();
+    _preparePlannedTalkForCurrentTrack();
   }
 
   /// 現在曲の終端直前（約50ms前）イベント。
@@ -320,27 +335,31 @@ class DjProvider extends ChangeNotifier {
 
     _isHandlingTrackEndingSoon = true;
     try {
-      // トーク頻度チェック
-      if (!_checkTalkFrequency()) {
-        debugPrint('DjProvider: onTrackEndingSoon — skipping talk (frequency)');
+      final planForCurrent = (_plannedForTrack == _currentTrack)
+          ? _plannedTalkType
+          : _PlannedTalkType.none;
+
+      if (planForCurrent == _PlannedTalkType.none) {
+        debugPrint('DjProvider: onTrackEndingSoon — skipping talk (planned=none)');
         _cancelTts();
         await _restoreMusicPlayback();
         return;
       }
 
-      // radio4all チェック
-      if (_shouldPlayRadioAll()) {
+      // radio4all チェック（計画済み）
+      if (planForCurrent == _PlannedTalkType.radioAll) {
         debugPrint('DjProvider: onTrackEndingSoon — radio4all ($_talkPlayCount)');
         _cancelTts();
         _suppressNextTalk = true;
         await _playAssetTalk(_radioAllAsset, skipToNextAfterTalk: true);
-        _startTtsGeneration();
+        _planNextTalkForCurrentTrack();
+        _preparePlannedTalkForCurrentTrack();
         return;
       }
 
-      // まだ当該曲向けのTTSが無ければ生成開始
+      // DJ talk / Station ID は準備を開始（同一条件なら再生成しない）
       if (_ttsCompleter == null || _ttsForTrack != _currentTrack) {
-        _startTtsGeneration();
+        _preparePlannedTalkForCurrentTrack();
       }
 
       final completer = _ttsCompleter;
@@ -361,7 +380,8 @@ class DjProvider extends ChangeNotifier {
       // この切り替えでは onTrackChanged 側のトーク実行を抑止
       _suppressNextTalk = true;
       await _playVoidTalk(skipToNextAfterTalk: true);
-      _startTtsGeneration();
+      _planNextTalkForCurrentTrack();
+      _preparePlannedTalkForCurrentTrack();
     } finally {
       _isHandlingTrackEndingSoon = false;
     }
@@ -424,7 +444,8 @@ class DjProvider extends ChangeNotifier {
 
     if (_currentTrack != null) {
       // 楽曲再生中: 音量を下げてイントロ、同時に TTS 生成開始
-      _startTtsGeneration();
+      _planNextTalkForCurrentTrack();
+      _preparePlannedTalkForCurrentTrack();
       try { await preload.timeout(_introPreloadTimeout); } catch (_) {}
       // 一部端末で先頭が欠けるため、短いプリロールを入れてから再生する。
       await Future.delayed(_introPreRollBuffer);
@@ -445,8 +466,10 @@ class DjProvider extends ChangeNotifier {
   /// バックグラウンドで TTS 生成を開始する。
   /// [_stationIdRate] の確率で Station ID に切り替える。
   void _startTtsGeneration() {
-    _cancelTts();
     if (_currentTrack == null || _hostAddress.isEmpty) return;
+    if (_plannedTalkType != _PlannedTalkType.dj || _plannedForTrack != _currentTrack) {
+      return;
+    }
 
     unawaited(_startTtsGenerationInternal());
   }
@@ -454,6 +477,7 @@ class DjProvider extends ChangeNotifier {
   Future<void> _startTtsGenerationInternal() async {
     final expectedCurrent = _currentTrack;
     if (expectedCurrent == null || _hostAddress.isEmpty) return;
+    if (_plannedTalkType != _PlannedTalkType.dj || _plannedForTrack != expectedCurrent) return;
 
     if (_nextTrack == null) {
       // nextTrack が少し遅れて届くケースを吸収する
@@ -466,24 +490,34 @@ class DjProvider extends ChangeNotifier {
       }
     }
 
-    // nextTrack が確定しない場合は曲名言及トークを避ける（誤案内防止）
+    // nextTrack 未確定ならまだ生成しない（確定後に _onNextTrackUpdated で開始）
     if (_nextTrack == null) {
-      debugPrint('DjProvider: nextTrack unavailable after grace; fallback to station ID');
-      _startStationIdFetch();
-      return;
-    }
-
-    if (_rng.nextDouble() < _stationIdRate) {
-      _startStationIdFetch();
+      debugPrint('DjProvider: nextTrack unavailable after grace; waiting for update');
       return;
     }
 
     final forTrack    = _currentTrack!;
     final songNext    = _nextTrack!;
     final historySnap = List<TrackInfo>.from(_trackHistory);
+    final requestKey =
+        '${forTrack.artist}\u0001${forTrack.title}\u0001${songNext.artist}\u0001${songNext.title}';
+
+    // 同一曲情報では再生成しない
+    if (_ttsCompleter != null && _ttsForTrack == forTrack && _ttsNextTrack == songNext) {
+      debugPrint('DjProvider: TTS already prepared/in-flight for same track info, skipping');
+      return;
+    }
+
+    if (_ttsRequestKey == requestKey && _ttsCompleter != null) {
+      debugPrint('DjProvider: TTS request key unchanged, skipping duplicate generation');
+      return;
+    }
+
+    _cancelTts();
 
     _ttsForTrack  = forTrack;
     _ttsNextTrack = songNext;
+    _ttsRequestKey = requestKey;
     _ttsHistory   = historySnap;
     final completer = Completer<Uint8List?>();
     _ttsCompleter = completer;
@@ -511,8 +545,16 @@ class DjProvider extends ChangeNotifier {
   /// Station ID をフェッチしてコンプリーターにセットする。
   void _startStationIdFetch() {
     final forTrack = _currentTrack!;
+
+    if (_ttsCompleter != null && _ttsForTrack == forTrack && _prependJingle) {
+      debugPrint('DjProvider: station ID already prepared/in-flight, skipping duplicate');
+      return;
+    }
+
+    _cancelTts();
     _ttsForTrack   = forTrack;
     _ttsNextTrack  = null;
+    _ttsRequestKey = '${forTrack.artist}\u0001${forTrack.title}\u0001station_id';
     _ttsHistory    = [];
     _prependJingle = true;  // 再生前に jingle.mp3 を挟む
     final completer = Completer<Uint8List?>();
@@ -535,8 +577,60 @@ class DjProvider extends ChangeNotifier {
     _ttsCompleter   = null;
     _ttsForTrack    = null;
     _ttsNextTrack   = null;
+    _ttsRequestKey  = null;
     _ttsHistory     = [];
     _prependJingle  = false;
+  }
+
+  void _planNextTalkForCurrentTrack() {
+    final cur = _currentTrack;
+    if (!_isOnAir || cur == null) {
+      _plannedTalkType = _PlannedTalkType.none;
+      _plannedForTrack = null;
+      return;
+    }
+
+    // 同じ曲については再判定しない
+    if (_plannedForTrack == cur) return;
+
+    final shouldTalk = _checkTalkFrequency();
+    if (!shouldTalk) {
+      _plannedTalkType = _PlannedTalkType.none;
+      _plannedForTrack = cur;
+      debugPrint('DjProvider: planned talk = none (frequency count=$_songsSinceTalk)');
+      return;
+    }
+
+    if (_shouldPlayRadioAll()) {
+      _plannedTalkType = _PlannedTalkType.radioAll;
+      _plannedForTrack = cur;
+      debugPrint('DjProvider: planned talk = radio4all ($_talkPlayCount)');
+      return;
+    }
+
+    _plannedTalkType = (_rng.nextDouble() < _stationIdRate)
+        ? _PlannedTalkType.stationId
+        : _PlannedTalkType.dj;
+    _plannedForTrack = cur;
+    debugPrint('DjProvider: planned talk = $_plannedTalkType for "${cur.title}"');
+  }
+
+  void _preparePlannedTalkForCurrentTrack() {
+    final cur = _currentTrack;
+    if (!_isOnAir || cur == null || _plannedForTrack != cur) return;
+
+    switch (_plannedTalkType) {
+      case _PlannedTalkType.none:
+      case _PlannedTalkType.radioAll:
+        _cancelTts();
+        return;
+      case _PlannedTalkType.stationId:
+        _startStationIdFetch();
+        return;
+      case _PlannedTalkType.dj:
+        _startTtsGeneration();
+        return;
+    }
   }
 
   Future<bool> _waitForTtsReady(Completer<Uint8List?> completer) async {
@@ -667,6 +761,7 @@ class DjProvider extends ChangeNotifier {
   /// nextTrack 情報が更新された。nextTrack が実際に変化した場合のみ TTS を再生成する。
   void _onNextTrackUpdated(TrackInfo track) {
     debugPrint('DjProvider: _onNextTrackUpdated — next="${track.title}"');
+    final prevNext = _nextTrack;
     _nextTrack = track;
 
     if (!_isOnAir || _currentTrack == null || _isPlayingTalk) {
@@ -676,13 +771,18 @@ class DjProvider extends ChangeNotifier {
     }
 
     if (_ttsCompleter == null) {
-      // まだ生成を開始していない: 開始
-      debugPrint('DjProvider: nextTrack arrived, starting TTS — next="$track"');
-      _startTtsGeneration();
+      // まだ生成を開始していない: 計画済み種別に応じて開始
+      debugPrint('DjProvider: nextTrack arrived, preparing planned talk — next="$track"');
+      _preparePlannedTalkForCurrentTrack();
       return;
     }
 
-    if (_ttsNextTrack == track) return; // 同じ情報なら何もしない
+    if (prevNext == track && _ttsNextTrack == track) return; // 同じ情報なら何もしない
+
+    if (_plannedTalkType != _PlannedTalkType.dj || _plannedForTrack != _currentTrack) {
+      // DJ talk 以外では nextTrack 変化で再生成しない
+      return;
+    }
 
     // nextTrack が変わったら常に最新情報で作り直す（誤曲名トーク防止）
     debugPrint('DjProvider: nextTrack changed, restarting TTS '

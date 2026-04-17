@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from logging.config import dictConfig
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -18,11 +19,46 @@ import services.llm_client as llm_client
 import services.tts_client as tts_client
 import services.station_id as station_id
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+def _configure_logging() -> None:
+    dictConfig(
+        {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "app": {
+                    "format": "%(asctime)s | %(levelname).1s | %(name)s | %(message)s",
+                    "datefmt": "%H:%M:%S",
+                },
+                "access": {
+                    "format": "%(asctime)s | A | %(client_addr)s | \"%(request_line)s\" %(status_code)s",
+                    "datefmt": "%H:%M:%S",
+                },
+            },
+            "handlers": {
+                "default": {
+                    "class": "logging.StreamHandler",
+                    "stream": "ext://sys.stdout",
+                    "formatter": "app",
+                },
+                "access": {
+                    "class": "logging.StreamHandler",
+                    "stream": "ext://sys.stdout",
+                    "formatter": "access",
+                },
+            },
+            "loggers": {
+                "": {"handlers": ["default"], "level": "INFO"},
+                "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+                "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+                # 下層HTTPライブラリの1リクエスト毎ログは冗長なので抑制
+                "httpx": {"handlers": ["default"], "level": "WARNING", "propagate": False},
+                "httpcore": {"handlers": ["default"], "level": "WARNING", "propagate": False},
+            },
+        }
+    )
+
+
+_configure_logging()
 logger = logging.getLogger(__name__)
 
 

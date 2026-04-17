@@ -109,7 +109,7 @@ async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
 
     # ── クライアント切断チェック ──────────────────────────────────────────
     if await http_request.is_disconnected():
-        logger.info("[%s] ✗ client disconnected after LLM — aborting TTS", req_id)
+        logger.debug("[%s] client disconnected after LLM — aborting TTS", req_id)
         raise HTTPException(status_code=499, detail="Client disconnected")
 
     # ── TTS 音声合成 ──────────────────────────────────────────────────────

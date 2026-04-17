@@ -42,7 +42,7 @@ async def _synthesize_http(cfg: dict, text: str) -> bytes:
     if speaker and speaker != "default":
         payload["reference_id"] = speaker
 
-    logger.info("TTS HTTP: speaker=%s, format=%s, text_length=%d", speaker, audio_format, len(text))
+    logger.debug("TTS HTTP: speaker=%s, format=%s, text_length=%d", speaker, audio_format, len(text))
 
     client = llm_client._get_http_client()
     for attempt in range(2):
@@ -62,7 +62,7 @@ async def _synthesize_http(cfg: dict, text: str) -> bytes:
     if "audio" not in content_type and "octet-stream" not in content_type:
         raise ValueError(f"TTS response is not audio. content-type={content_type!r}")
 
-    logger.info("TTS HTTP response bytes: %d", len(response.content))
+    logger.debug("TTS HTTP response bytes: %d", len(response.content))
     return response.content
 
 
@@ -92,7 +92,7 @@ async def _synthesize_subprocess_inner(cfg: dict, text: str) -> bytes:
     if ref_audio:
         cmd += ["-pa", ref_audio]
 
-    logger.info("TTS subprocess: %s", " ".join(cmd))
+    logger.debug("TTS subprocess: %s", " ".join(cmd))
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -108,7 +108,7 @@ async def _synthesize_subprocess_inner(cfg: dict, text: str) -> bytes:
             )
 
         wav_bytes = Path(output_path).read_bytes()
-        logger.info("TTS subprocess output bytes: %d", len(wav_bytes))
+        logger.debug("TTS subprocess output bytes: %d", len(wav_bytes))
         return wav_bytes
 
     finally:
