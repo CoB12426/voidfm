@@ -30,19 +30,23 @@ fi
 cd "$ROOT_DIR"
 
 GPU_ENABLED=0
-if command -v nvidia-smi >/dev/null 2>&1; then
-  if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q '"nvidia"'; then
-    GPU_ENABLED=1
+GPU_ERR_LOG="$(mktemp)"
+
+if docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build 2>"$GPU_ERR_LOG"; then
+  GPU_ENABLED=1
+else
+  if grep -qiE 'could not select device driver "nvidia"|capabilities: \[\[gpu\]\]|no such device|unknown runtime.*nvidia|nvidia-container-runtime' "$GPU_ERR_LOG"; then
+    echo "[WARN] NVIDIA runtime is not available. Falling back to CPU mode."
+    echo "       To enable GPU, install NVIDIA Container Toolkit and restart Docker."
+    docker compose -f docker-compose.all.yml up -d --build
+  else
+    cat "$GPU_ERR_LOG" >&2
+    rm -f "$GPU_ERR_LOG"
+    exit 1
   fi
 fi
 
-if [[ "$GPU_ENABLED" -eq 1 ]]; then
-  docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
-else
-  echo "[WARN] NVIDIA runtime is not available. Falling back to CPU mode."
-  echo "       To enable GPU, install NVIDIA Container Toolkit and restart Docker."
-  docker compose -f docker-compose.all.yml up -d --build
-fi
+rm -f "$GPU_ERR_LOG"
 
 echo "[OK] All services started"
 echo "  - mydj-host:   http://localhost:8000"
