@@ -67,7 +67,6 @@ docker exec -it voidfm-ollama ollama pull llama3.2:1b
 **② TTS モデル（fish-speech）：**
 
 ```bash
-cd fish-speech
 pip install huggingface_hub
 python -c "from huggingface_hub import snapshot_download; snapshot_download('fishaudio/fish-speech-1.5', local_dir='fish-speech/checkpoints/s2-pro')"
 ```

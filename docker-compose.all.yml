@@ -15,8 +15,8 @@ services:
       target: server
       args:
         BACKEND: ${FISH_BACKEND:-cpu}
-        CUDA_VER: ${CUDA_VER:-12.9.0}
-        UV_EXTRA: ${UV_EXTRA:-cu129}
+        CUDA_VER: ${CUDA_VER:-12.6.3}
+        UV_EXTRA: ${UV_EXTRA:-cu126}
         UV_VERSION: ${UV_VERSION:-0.8.15}
     container_name: voidfm-fish-speech
     ports:

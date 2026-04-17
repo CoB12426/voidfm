@@ -27,6 +27,17 @@ if [[ ! -d "$FISH_DIR" ]]; then
   fi
 fi
 
+# fish-speech server requires writable references and checkpoints dirs
+for DIR_PATH in "$FISH_DIR/references" "$FISH_DIR/checkpoints"; do
+  mkdir -p "$DIR_PATH"
+  if [[ ! -w "$DIR_PATH" ]]; then
+    echo "[ERROR] $DIR_PATH is not writable by current user."
+    echo "        Please fix permissions and run again:"
+    echo "        sudo chown -R $(id -u):$(id -g) $DIR_PATH"
+    exit 1
+  fi
+done
+
 cd "$ROOT_DIR"
 
 GPU_ENABLED=0
@@ -47,6 +58,19 @@ else
 fi
 
 rm -f "$GPU_ERR_LOG"
+
+# quick post-check for fish-speech startup issues
+sleep 2
+FISH_STATE="$(docker inspect -f '{{.State.Status}}' voidfm-fish-speech 2>/dev/null || echo unknown)"
+FISH_HEALTH="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' voidfm-fish-speech 2>/dev/null || echo '')"
+if [[ "$FISH_STATE" != "running" ]] || [[ "$FISH_HEALTH" == "unhealthy" ]]; then
+  echo "[WARN] fish-speech is not healthy yet (state=$FISH_STATE health=${FISH_HEALTH:-n/a})."
+  echo "[INFO] Recent fish-speech logs:"
+  docker logs --tail 60 voidfm-fish-speech || true
+  echo "[HINT] If you see 'FileNotFoundError: checkpoints/s2-pro', download model checkpoints into fish-speech/checkpoints/s2-pro."
+  echo "[HINT] If you see 'cudaGetDeviceCount ... Error 804', your NVIDIA driver is too old for CUDA 12.9 image."
+  echo "       Update GPU driver (recommended), or run CPU mode until updated."
+fi
 
 echo "[OK] All services started"
 echo "  - mydj-host:   http://localhost:8000"
