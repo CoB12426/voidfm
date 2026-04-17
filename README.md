@@ -67,8 +67,8 @@ docker exec -it voidfm-ollama ollama pull llama3.2:1b
 **② TTS モデル（fish-speech）：**
 
 ```bash
-pip install huggingface_hub
-python -c "from huggingface_hub import snapshot_download; snapshot_download('fishaudio/fish-speech-1.5', local_dir='fish-speech/checkpoints/s2-pro')"
+pip install -U huggingface_hub
+python -c "from huggingface_hub import snapshot_download; snapshot_download('fishaudio/fish-speech-1.5', local_dir='fish-speech/checkpoints/s2-pro', local_dir_use_symlinks=False)"
 ```
 
 > ダウンロード後は `docker restart voidfm-fish-speech` でコンテナを再起動してください。
@@ -109,8 +109,12 @@ docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
 
 前提：
 
-- **Windows**：Docker Desktop（WSL2 バックエンド）+ NVIDIA ドライバー 470 以降
-- **Linux**：[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) がインストールされていること
+- **Windows**：Docker Desktop（WSL2 バックエンド）+ NVIDIA ドライバー **560 以降**
+- **Linux**：NVIDIA ドライバー **560 以降** + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) がインストールされていること
+
+> **ドライバーバージョンについて**  
+> fish-speech は CUDA 12.6 を使用します。CUDA 12.6 には NVIDIA ドライバー 560 以上が必要です。  
+> `nvidia-smi` で確認し、古い場合は `ubuntu-drivers devices` で更新してください。
 
 GPU 環境がない場合は、手動で以下を使って起動してください。
 

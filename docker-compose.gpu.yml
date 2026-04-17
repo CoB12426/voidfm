@@ -3,7 +3,8 @@
 #
 # 前提:
 #   - NVIDIA GPU が搭載されていること
-#   - Windows: Docker Desktop + WSL2 バックエンド + NVIDIA ドライバー (470 以降)
+#   - NVIDIA ドライバー 560 以降 (CUDA 12.6 対応に必要)
+#   - Windows: Docker Desktop + WSL2 バックエンド
 #   - Linux:   NVIDIA Container Toolkit がインストールされていること
 #     (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
 
