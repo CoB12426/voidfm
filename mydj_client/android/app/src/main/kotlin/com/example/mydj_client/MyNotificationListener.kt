@@ -31,7 +31,7 @@ class MyNotificationListener : NotificationListenerService() {
     companion object {
         private const val TAG = "MyNotifListener"
         private const val USER_SKIP_GUARD_MS = 2500L
-        private const val PRE_END_PAUSE_MS = 150L
+        private const val PRE_END_PAUSE_MS = 300L
         private const val PRE_END_MONITOR_INTERVAL_MS = 20L
 
         /** 現在トラック用 EventSink（com.example.mydj/notification） */

@@ -28,10 +28,11 @@ if [[ ! -d "$FISH_DIR" ]]; then
 fi
 
 cd "$ROOT_DIR"
-docker compose -f docker-compose.all.yml up -d --build
+docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
 
 echo "[OK] All services started"
 echo "  - mydj-host:   http://localhost:8000"
 echo "  - fish-speech: http://localhost:8080"
 echo "  - ollama:      http://localhost:11434"
+echo "[INFO] Started with GPU profile (docker-compose.gpu.yml)."
 echo "[NOTE] For first run, pull a model inside ollama container (example: llama3.2)."

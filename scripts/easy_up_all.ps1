@@ -33,7 +33,7 @@ if (-not (Test-Path $FishDir)) {
 
 Push-Location $RootDir
 try {
-  docker compose -f docker-compose.all.yml up -d --build
+  docker compose -f docker-compose.all.yml -f docker-compose.gpu.yml up -d --build
   if ($LASTEXITCODE -ne 0) {
     throw "docker compose failed with exit code $LASTEXITCODE"
   }
@@ -46,4 +46,5 @@ Write-Host "[OK] All services started"
 Write-Host "  - mydj-host:   http://localhost:8000"
 Write-Host "  - fish-speech: http://localhost:8080"
 Write-Host "  - ollama:      http://localhost:11434"
+Write-Host "[INFO] Started with GPU profile (docker-compose.gpu.yml)."
 Write-Host "[NOTE] For first run, pull a model inside ollama container (example: llama3.2)."
