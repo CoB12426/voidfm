@@ -52,6 +52,7 @@ class DjProvider extends ChangeNotifier {
   bool _awaitingMusic    = false;  // ON AIR 後、楽曲開始待ち
   bool _suppressNextTalk = false;  // 次回 void talk をスキップ
   bool _isHandlingTrackEndingSoon = false;
+  bool _trackChangedDuringTalk = false;  // トーク中に曲が自然進行したか
   DateTime? _trackStartTime;
 
   // トーク頻度管理
@@ -251,10 +252,17 @@ class DjProvider extends ChangeNotifier {
       return;
     }
 
-    if (_isPlayingTalk) {
-      // void talk 再生中に届く重複通知は無視する。
-      // ここで音楽を再開するとトークが途中で切れる。
-      debugPrint('DjProvider: track update ignored while void talk is playing');
+    if (_isHandlingTrackEndingSoon || _isPlayingTalk) {
+      // トーク処理中に曲が自然進行した場合：currentTrackを更新し、
+      // skipToNext()が不要なことを記録する。_suppressNextTalkも消費してカスケードを防ぐ。
+      _trackChangedDuringTalk = true;
+      _suppressNextTalk = false;
+      if (prevTrack != null) _addToHistory(prevTrack);
+      _currentTrack   = newTrack;
+      _trackStartTime = DateTime.now();
+      _nextTrack      = null;
+      notifyListeners();
+      debugPrint('DjProvider: track changed during talk — recorded, skip skipToNext()');
       return;
     }
 
@@ -712,13 +720,18 @@ class DjProvider extends ChangeNotifier {
       debugPrint('DjProvider: _playVoidTalk — finally block: resumeMusic()');
       await Future.delayed(const Duration(milliseconds: 150));
 
-      if (skipToNextAfterTalk) {
+      // トーク中に曲が自然進行済みなら skipToNext() は不要（既に次曲にいる）
+      final shouldSkip = skipToNextAfterTalk && !_trackChangedDuringTalk;
+      _trackChangedDuringTalk = false;
+      if (shouldSkip) {
         debugPrint('DjProvider: _playVoidTalk — skipToNext() before resume');
         await _notif.skipToNext();
+      } else if (skipToNextAfterTalk) {
+        debugPrint('DjProvider: _playVoidTalk — skip suppressed (track already advanced)');
       }
 
       await _restoreMusicPlayback();
-      
+
       _isPlayingTalk = false;
       notifyListeners();
       debugPrint('DjProvider: _playVoidTalk done');

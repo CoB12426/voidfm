@@ -204,6 +204,7 @@ class MyNotificationListener : NotificationListenerService() {
                 if (remaining > PRE_END_PAUSE_MS) return
 
                 preEndPauseSentForTrack = true
+                holdPlayback = true  // 次曲の自動再生を即時ブロック（Flutter往復不要）
                 controller.transportControls.pause()
                 sendTrackEndingSoon(remaining)
                 Log.d(TAG, "djActive: pre-end pause fired (remaining=${remaining}ms)")
