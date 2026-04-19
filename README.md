@@ -1,81 +1,64 @@
 # voidfm
 
-ローカルの音楽再生に AI DJ トークを差し込む実験的アプリです。
+An experimental app that inserts AI DJ talk into local music playback.
 
-Android アプリ（`mydj_client`）と Ubuntu ホスト（`mydj-host`）の2つで動作します。
+### Step 1
 
-```
-Android（音楽再生 + DJ トーク再生）
-    ↕ HTTP
-Ubuntu ホスト（LLM でトーク生成 + TTS で音声合成）
-```
+Download `voidfm-android-release.apk` from the GitHub Releases page and install it on your Android device.
 
----
-
-## ライセンス重要事項（TTS モデル）
-
-Fish Audio 由来のモデル・素材は **Research / Non-Commercial 用途のみ無償利用可能**です。  
-**商用利用には Fish Audio との別途ライセンス契約が必要**です。  
-詳細は [Fish Audio License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) を必ず確認してください。
-
----
-### Step:1
-
-GitHub Releases ページから `voidfm-android-release.apk` をダウンロードしてインストール。
-
-### ステップ:2（Ubuntu 側セットアップ）
+### Step 2 — Ubuntu Setup
 
 ```bash
 git clone https://github.com/CoB12426/voidfm.git
 cd voidfm
 
-# Python 仮想環境
+# Create Python virtual environment
 python3 -m venv voidfm
 source voidfm/bin/activate
 
-# host 設定ファイルを作成
+# Create host config file
 cp mydj-host/config.toml.example mydj-host/config.toml
 
-# 依存インストール
+# Install dependencies
 pip install -r mydj-host/requirements.txt
 ```
 
-### ステップ:3（外部モデルの配置）
+### Step 3 — Place External Models
 
-`tts.mode = "subprocess"` を使う場合は、以下をダウンロードして配置してください。
+If using `tts.mode = "subprocess"`, download and place the following files:
 
-- `s2` バイナリ（`s2.cpp` をビルドして作成）
+- `s2` binary (build from `s2.cpp`)
     - https://github.com/rodrigomatta/s2.cpp
 - `s2-pro-q4_k_m.gguf`
     - https://huggingface.co/rodrigomt/s2-pro-gguf/resolve/main/s2-pro-q4_k_m.gguf
 - `tokenizer.json`
     - https://github.com/rodrigomatta/s2.cpp/blob/main/tokenizer.json
 
-`mydj-host/config.toml` の `s2_binary / s2_model / s2_tokenizer` を各自の配置パスに合わせて編集してください。
+Edit `s2_binary`, `s2_model`, and `s2_tokenizer` in `mydj-host/config.toml` to match the paths where you placed the files.
 
-### ステップ:4（Ollama）
+### Step 4 — Ollama
 
-ホストOS側で Ollama を起動し、モデルを pull します。
+Start Ollama on the host and pull a model.
 
 ```bash
 ollama pull llama3.2:1b
 ollama serve
 ```
 
-### ステップ:5（起動）
+### Step 5 — Start the Host
 
 ```bash
-# hostのみ起動（バックグラウンド）
+# Start host only (background)
 ./scripts/dev_up.sh --host-only
 ```
 
-### ステップ:6（Android 側接続）
+### Step 6 — Connect from Android
 
-Android アプリを開き、設定画面で Ubuntu の IP アドレスとポート `8000` を入力して ON AIR。
+Open the Android app, enter the Ubuntu host's IP address and port `8000` in the Settings screen, then go ON AIR.
 
-Tailscale の利用をおすすめします。
+Using [Tailscale](https://tailscale.com) is recommended for easy remote connectivity.
 
-### 停止
+### Stop
 
 ```bash
 ./scripts/dev_down.sh
@@ -83,6 +66,12 @@ Tailscale の利用をおすすめします。
 
 ---
 
-## 補足
+---
 
-- Fish Audio 由来モデルの利用条件（非商用等）は必ず確認してください。
+## License Notice (TTS Model)
+
+Models and assets derived from Fish Audio are **free for Research / Non-Commercial use only**.  
+**Commercial use requires a separate license agreement with Fish Audio.**  
+Please review the [Fish Audio License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) before use.
+
+---
