@@ -13,46 +13,32 @@
 
 ---
 
-## スクリプトの動作詳細
+## 配布方針（2026-04）
 
-### `easy_up_all`（全部 Docker）
+Docker での同梱配布は一旦中止し、以下の方式で配布する。
 
-`docker-compose.all.yml` を使って以下を一括起動します：
-
-| コンテナ | イメージ/ビルド元 |
-|---------|----------------|
-| `voidfm-ollama` | `ollama/ollama:latest` |
-| `voidfm-fish-speech` | `fish-speech/` ディレクトリからビルド |
-| `voidfm-host` | `mydj-host/` ディレクトリからビルド |
-
-自動処理：
-- `fish-speech/` が存在しない場合、自動で `git clone`（git が必要）
-- `config.toml` が存在しない場合、`config.allinone.toml.example` からコピー
-
-### `easy_up`（host のみ）
-
-`docker-compose.easy.yml` で `voidfm-host` のみを起動します。
-
-自動処理：
-- `config.toml` が存在しない場合、`config.docker.toml.example` からコピー
-- `tts.mode = "http"` の場合、fish-speech サーバーも合わせて起動
-- `tts.mode = "subprocess"` の場合、`models/` の必要ファイルを確認してから起動
-- Ollama の到達性チェック（起動はしない）
+- ユーザーは Ubuntu 上でローカル実行環境を作成
+- `mydj-host/config.toml` を各自編集
+- 外部モデル（`s2` / `*.gguf` / `tokenizer.json`）は README にリンクのみ掲載
+- 起動はターミナルから `./scripts/dev_up.sh --host-only`
 
 ---
 
-## `tts.mode = "subprocess"` に必要なファイル（`models/`）
+## リリース時チェックリスト（ローカル実行版）
 
-Linux 環境で subprocess モードを使う場合のみ必要です。  
-Windows や `easy_up_all` では不要です。
-
-- `s2`（Linux 実行可能ファイル）
-- `s2-pro-q4_k_m.gguf`
-- `tokenizer.json`
+1. README の手順が現行コードと一致している
+2. `mydj-host/config.toml.example` のキーが最新
+3. `scripts/dev_up.sh` / `scripts/dev_down.sh` で起動・停止できる
+4. Android APK で `http://<host-ip>:8000/ping` が通る
+5. TTS モデルのライセンス注記（非商用等）が README に明記されている
 
 ---
 
-## 注意事項
+## 旧 Docker スクリプトについて
 
-- Fish Audio 関連素材は非商用用途のみ無償（商用利用は別途契約が必要）
-- `fish-speech/` が存在しない状態で `easy_up`（`http` モード）を使う場合は、TTS サーバーを手動で用意してください
+以下は互換目的で残すが、配布手順としては推奨しない。
+
+- `scripts/easy_up_all.sh`
+- `scripts/easy_down_all.sh`
+- `scripts/easy_up.sh`
+- `scripts/easy_down.sh`
