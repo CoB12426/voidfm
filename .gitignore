@@ -60,5 +60,7 @@ s2.cpp/
 # ---- Memo ----
 SIDEPROJECT_POST_TEMPLATE_ja.md
 RELEASE_CHECKLIST.md
+voidfm-client-spec.md
+voidfm-host-spec.md
 
 .github
