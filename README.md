@@ -2,14 +2,6 @@
 
 An experimental app that inserts AI DJ talk into local music playback.
 
-It consists of two components: an Android app (`mydj_client`) and an Ubuntu host (`mydj-host`).
-
-```
-Android (music playback + DJ talk playback)
-    ↕ HTTP
-Ubuntu host (talk generation via LLM + speech synthesis via TTS)
-```
-
 ---
 
 ## License Notice (TTS Model)
