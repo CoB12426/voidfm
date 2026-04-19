@@ -3,7 +3,7 @@
 An experimental app that inserts AI DJ talk into local music playback.
 
 
-Uploading voidfm.mp4…
+https://github.com/user-attachments/assets/b3248831-3243-49ec-8531-66829b471580
 
 
 
@@ -69,14 +69,8 @@ Using [Tailscale](https://tailscale.com) is recommended for easy remote connecti
 ./scripts/dev_down.sh
 ```
 
----
-
----
-
 ## License Notice (TTS Model)
 
 Models and assets derived from Fish Audio are **free for Research / Non-Commercial use only**.  
 **Commercial use requires a separate license agreement with Fish Audio.**  
 Please review the [Fish Audio License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) before use.
-
----
