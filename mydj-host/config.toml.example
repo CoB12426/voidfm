@@ -4,7 +4,7 @@ host = "0.0.0.0"
 
 [llm]
 ollama_url = "http://localhost:11434"
-default_model = "llama3.2"
+default_model = "llama3.2:1b"
 
 [tts]
 # mode = "http"  で fish-speech の HTTP サーバーを使う
@@ -16,9 +16,9 @@ fish_speech_url = "http://localhost:8080"
 default_speaker = "default"
 
 # mode = "subprocess" のとき使用
-s2_binary = "/home/aki/Projects/VoidFM/s2.cpp/build/s2"
-s2_model   = "/home/aki/Projects/VoidFM/s2-pro-q4_k_m.gguf"
-s2_tokenizer = "/home/aki/Projects/VoidFM/tokenizer.json"
+s2_binary = "../s2.cpp/build/s2"
+s2_model   = "../models/s2-pro-q4_k_m.gguf"
+s2_tokenizer = "../models/tokenizer.json"
 
 [dj]
 default_language = "en"

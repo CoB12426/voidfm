@@ -32,13 +32,4 @@ Docker での同梱配布は一旦中止し、以下の方式で配布する。
 4. Android APK で `http://<host-ip>:8000/ping` が通る
 5. TTS モデルのライセンス注記（非商用等）が README に明記されている
 
----
 
-## 旧 Docker スクリプトについて
-
-以下は互換目的で残すが、配布手順としては推奨しない。
-
-- `scripts/easy_up_all.sh`
-- `scripts/easy_down_all.sh`
-- `scripts/easy_up.sh`
-- `scripts/easy_down.sh`
