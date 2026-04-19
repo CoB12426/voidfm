@@ -2,16 +2,6 @@
 
 An experimental app that inserts AI DJ talk into local music playback.
 
----
-
-## License Notice (TTS Model)
-
-Models and assets derived from Fish Audio are **free for Research / Non-Commercial use only**.  
-**Commercial use requires a separate license agreement with Fish Audio.**  
-Please review the [Fish Audio License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) before use.
-
----
-
 ### Step 1
 
 Download `voidfm-android-release.apk` from the GitHub Releases page and install it on your Android device.
@@ -76,6 +66,12 @@ Using [Tailscale](https://tailscale.com) is recommended for easy remote connecti
 
 ---
 
-## Notes
+---
 
-- Always check the usage terms for Fish Audio-derived models (non-commercial use, etc.).
+## License Notice (TTS Model)
+
+Models and assets derived from Fish Audio are **free for Research / Non-Commercial use only**.  
+**Commercial use requires a separate license agreement with Fish Audio.**  
+Please review the [Fish Audio License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) before use.
+
+---
