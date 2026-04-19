@@ -59,6 +59,7 @@ pip install -r mydj-host/requirements.txt
 
 ```bash
 ollama pull llama3.2:1b
+ollama serve
 ```
 
 ### ステップ:5（起動）
