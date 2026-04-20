@@ -80,7 +80,7 @@ async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
     logger.info(
         "[%s] ← track=%r  prev=%r  length=%s",
         req_id,
-        body.current_track.title,
+        body.next_track.title,
         body.previous_track.title if body.previous_track else None,
         talk_length,
     )
@@ -88,7 +88,7 @@ async def talk(http_request: Request, body: TalkRequest) -> StreamingResponse:
     # ── プロンプト構築 ────────────────────────────────────────────────────
     try:
         prompt = await prompt_builder.build_prompt(
-            current_track=body.current_track,
+            next_track=body.next_track,
             previous_track=body.previous_track,
             talk_length=talk_length,
             personality=personality,

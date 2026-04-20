@@ -183,7 +183,7 @@ def _history_line(
 # ---------------------------------------------------------------------------
 
 async def build_prompt(
-    current_track: TrackInfo,
+    next_track: TrackInfo,
     previous_track: Optional[TrackInfo],
     talk_length: str,
     personality: Optional[str] = None,
@@ -205,7 +205,7 @@ async def build_prompt(
     length_instruction = _LENGTH_INSTRUCTIONS.get(talk_length, _LENGTH_INSTRUCTIONS["medium"])
 
     prompt = _build(
-        context, pcfg, current_track, previous_track,
+        context, pcfg, next_track, previous_track,
         length_instruction, is_mid_song, username, dj_name, custom_prompt, track_history,
     )
 
@@ -216,7 +216,7 @@ async def build_prompt(
 def _build(
     context: str,
     pcfg: dict,
-    current_track: TrackInfo,
+    next_track: TrackInfo,
     previous_track: Optional[TrackInfo],
     length_instruction: str,
     is_mid_song: bool,
@@ -243,7 +243,7 @@ def _build(
             "Give a short, natural mid-song comment about the track currently playing. "
             "Always complete your sentences fully. "
             "Output only the talk itself, no preamble.\n\n"
-            f"Now playing: \"{current_track.title}\" by {current_track.artist}\n\n"
+            f"Now playing: \"{next_track.title}\" by {next_track.artist}\n\n"
             f"{emo}\n\n"
             f"{length_instruction}"
             f"{custom_line}"
@@ -257,14 +257,14 @@ def _build(
     )
     same_track = (
         previous_track is not None
-        and previous_track.title == current_track.title
-        and previous_track.artist == current_track.artist
+        and previous_track.title == next_track.title
+        and previous_track.artist == next_track.artist
     )
 
     if same_track:
         next_line = "■ Next track (about to play): Another track from the queue\n"
     else:
-        next_line = f"■ Next track (about to play): \"{current_track.title}\" by {current_track.artist}\n"
+        next_line = f"■ Next track (about to play): \"{next_track.title}\" by {next_track.artist}\n"
 
     if previous_track and not same_track:
         structure = (
@@ -301,7 +301,9 @@ def _build(
         "Do not say anything about yesterday or tomorrow — only the current day."
         "Do not use any phrases that suggest the show has ended or is about to end."
         "Do not say 'welcome to VoidFM' or similar — the listener is already tuned in. "
-        "Do not call usernames or DJ names more than once per talk, and only if it feels natural. "
+        "Do not mention the weather, time, or date in every talk — only when it fits naturally. "
+        "Do not say 'This is [DJ name] on VoidFM' or similar — just speak as the DJ without self-introductions. "
+        "Do not call usernames or DJ names in every talk."
         "Do not mention the track history unless you can tie it into a natural comment. "
         "Do not starts sentences with 'Hey there' or 'Hi everyone' or similar — just jump into the talk. "
         "Always complete your sentences fully — never cut off mid-thought. "

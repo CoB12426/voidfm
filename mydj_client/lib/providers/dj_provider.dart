@@ -229,6 +229,16 @@ class DjProvider extends ChangeNotifier {
       return;
     }
 
+    // ── トーク処理中の自然進行（isUserSkip より先に評価）────────────────
+    // _suppressNextTalk=true は onTrackEndingSoon が内部的にセットする値であり、
+    // トーク再生中に届く自然な曲進行を「ユーザースキップ」と誤判定するのを防ぐ。
+    if (_isHandlingTrackEndingSoon || _isPlayingTalk) {
+      _trackChangedDuringTalk = true;
+      _suppressNextTalk = false;
+      debugPrint('DjProvider: track changed during talk — recorded, skip skipToNext()');
+      return;
+    }
+
     // ── ユーザースキップ判定 ──────────────────────────────────────────
     final isUserSkip = _suppressNextTalk || isQuickSkip;
     _suppressNextTalk = false;
@@ -249,20 +259,6 @@ class DjProvider extends ChangeNotifier {
       await _restoreMusicPlayback();
       _planNextTalkForCurrentTrack();
       _preparePlannedTalkForCurrentTrack();
-      return;
-    }
-
-    if (_isHandlingTrackEndingSoon || _isPlayingTalk) {
-      // トーク処理中に曲が自然進行した場合：currentTrackを更新し、
-      // skipToNext()が不要なことを記録する。_suppressNextTalkも消費してカスケードを防ぐ。
-      _trackChangedDuringTalk = true;
-      _suppressNextTalk = false;
-      if (prevTrack != null) _addToHistory(prevTrack);
-      _currentTrack   = newTrack;
-      _trackStartTime = DateTime.now();
-      _nextTrack      = null;
-      notifyListeners();
-      debugPrint('DjProvider: track changed during talk — recorded, skip skipToNext()');
       return;
     }
 
@@ -540,7 +536,7 @@ class DjProvider extends ChangeNotifier {
 
     _generateTts(
       previousTrack: forTrack,
-      currentTrack:  songNext,
+      nextTrack:     songNext,
       trackHistory:  historySnap,
     ).then((bytes) {
       debugPrint('DjProvider: TTS generation completed (${bytes?.length ?? 0} bytes)');
@@ -741,7 +737,7 @@ class DjProvider extends ChangeNotifier {
   /// ホストへリクエストを送り音声バイト列を返す（null = 失敗 or キャンセル）。
   Future<Uint8List?> _generateTts({
     required TrackInfo previousTrack,
-    required TrackInfo currentTrack,
+    required TrackInfo nextTrack,
     List<TrackInfo>    trackHistory = const [],
   }) async {
     final client = http.Client();
@@ -753,7 +749,7 @@ class DjProvider extends ChangeNotifier {
         client:      client,
       ).fetchTalk(
         previousTrack: previousTrack,
-        currentTrack:  currentTrack,
+        nextTrack:     nextTrack,
         preferences:   _preferences,
         trackHistory:  trackHistory,
       );

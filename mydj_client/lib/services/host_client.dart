@@ -60,13 +60,13 @@ class HostClient {
   /// [_client] が設定されている場合はそのクライアントを使用する。
   /// 呼び出し元が [_client].close() を呼ぶことでリクエストをキャンセルできる。
   Future<Uint8List> fetchTalk({
-    required TrackInfo currentTrack,
+    required TrackInfo nextTrack,
     TrackInfo? previousTrack,
     required DjPreferences preferences,
     List<TrackInfo> trackHistory = const [],
   }) async {
-    if (!_isValidTrack(currentTrack)) {
-      throw Exception('fetchTalk aborted: invalid currentTrack (empty title/artist)');
+    if (!_isValidTrack(nextTrack)) {
+      throw Exception('fetchTalk aborted: invalid nextTrack (empty title/artist)');
     }
 
     final safePreviousTrack =
@@ -77,7 +77,7 @@ class HostClient {
     final owned = _client == null; // 自前で生成した場合のみ finally でclose
     try {
       final body = jsonEncode({
-        'current_track': currentTrack.toJson(),
+        'next_track': nextTrack.toJson(),
         if (safePreviousTrack != null) 'previous_track': safePreviousTrack.toJson(),
         'preferences': preferences.toJson(),
         if (safeTrackHistory.isNotEmpty)
