@@ -7,6 +7,14 @@ https://github.com/user-attachments/assets/b3248831-3243-49ec-8531-66829b471580
 
 
 
+```
+Android (music playback + DJ talk playback)
+    ↕ HTTP
+Ubuntu host (LLM talk generation + Chatterbox TTS synthesis)
+```
+
+---
+
 ### Step 1
 
 Download `voidfm-android-release.apk` from the GitHub Releases page and install it on your Android device.
@@ -28,19 +36,21 @@ cp mydj-host/config.toml.example mydj-host/config.toml
 pip install -r mydj-host/requirements.txt
 ```
 
-### Step 3 — Configure LLM API and Place TTS Models
+A CUDA-capable GPU is recommended for reasonable TTS latency.
 
-The host can use any OpenAI-compatible Chat Completions API.
+### Step 3 — Configure LLM and TTS
+
+**LLM** — any OpenAI-compatible Chat Completions API:
 
 ```toml
 [llm]
 provider = "openai_compatible"
 base_url = "https://api.openai.com/v1"
 api_key = "env:OPENAI_API_KEY"
-default_model = "auto"  # use /v1/models; set a concrete model if needed
+default_model = "auto"  # uses /v1/models; set a concrete name if needed
 ```
 
-To keep using Ollama, switch the LLM block to:
+To use Ollama instead:
 
 ```toml
 [llm]
@@ -49,18 +59,29 @@ ollama_url = "http://localhost:11434"
 default_model = "llama3.2:1b"
 ```
 
-For TTS, `tts.mode = "s2_server"` is recommended. The host starts `s2.cpp` once and keeps it running while the host is up, instead of launching the TTS engine for every request.
+**TTS** — [Chatterbox TTS](https://github.com/resemble-ai/chatterbox) runs in-process (no external binary required). Two model variants are available:
 
-Download and place the following files:
+| `chatterbox_model` | Languages | Notes |
+|---|---|---|
+| `multilingual` | 23+ (incl. Japanese) | Recommended |
+| `turbo` | English only | Lower latency |
 
-- `s2` binary (build from `s2.cpp`)
-    - https://github.com/rodrigomatta/s2.cpp
-- `s2-pro-q4_k_m.gguf`
-    - https://huggingface.co/rodrigomt/s2-pro-gguf/resolve/main/s2-pro-q4_k_m.gguf
-- `tokenizer.json`
-    - https://github.com/rodrigomatta/s2.cpp/blob/main/tokenizer.json
+Voice cloning is supported by providing a 5–30 second reference audio file:
 
-Edit `s2_binary`, `s2_model`, and `s2_tokenizer` in `mydj-host/config.toml` to match the paths where you placed the files.
+```toml
+[tts]
+chatterbox_model = "multilingual"
+language_id = "en"
+cuda_device = 0          # GPU index; -1 for CPU only
+exaggeration = 0.5       # emotion strength (0.0–1.0+)
+cfg_weight = 0.5         # speaker similarity (lower = more natural pacing)
+default_ref_audio = "voices/default.wav"
+
+# Optional: register multiple voices for in-app selection
+# [tts.voices]
+# nova  = "voices/nova.wav"
+# atlas = "voices/atlas.wav"
+```
 
 ### Step 4 — Start the Host
 
@@ -84,8 +105,26 @@ Using [Tailscale](https://tailscale.com) is recommended for easy remote connecti
 ./scripts/dev_down.sh
 ```
 
-## License Notice (TTS Model)
+---
 
-Models and assets derived from Fish Audio are **free for Research / Non-Commercial use only**.  
+## Android App Settings
+
+| Setting | Description |
+|---|---|
+| Host / Port | Address of the Ubuntu host running mydj-host |
+| DJ Personality | standard / energetic / chill / intellectual / comedian |
+| Talk Length | short / medium / long |
+| Talk Frequency | Every 1–5 songs |
+| DJ Name | Optional name the DJ uses to introduce themselves |
+| Your Name | Optional listener name the DJ calls you by |
+| Weather City | City name or GPS coordinates for weather context |
+| Custom Prompt | Extra instructions appended to every DJ prompt |
+
+---
+
+## License Notice
+
+This project may be used with Fish Audio materials.  
+Fish Audio materials are **free for Research / Non-Commercial use only**.  
 **Commercial use requires a separate license agreement with Fish Audio.**  
-Please review the [Fish Audio License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) before use.
+See [Fish Audio License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE) for details.

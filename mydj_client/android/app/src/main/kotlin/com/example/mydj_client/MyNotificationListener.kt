@@ -2,6 +2,7 @@ package com.example.voidfm
 
 import android.app.Notification
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSession
@@ -31,6 +32,7 @@ class MyNotificationListener : NotificationListenerService() {
     companion object {
         private const val TAG = "MyNotifListener"
         private const val USER_SKIP_GUARD_MS = 2500L
+        private const val PRE_END_FADE_START_MS = 5000L
         private const val PRE_END_PAUSE_MS = 3500L
         private const val PRE_END_MONITOR_INTERVAL_MS = 20L
 
@@ -76,6 +78,13 @@ class MyNotificationListener : NotificationListenerService() {
         /** 現在アクティブとみなすメディアアプリの package 名 */
         @Volatile
         var activeMediaPackage: String? = null
+
+        /**
+         * フェードアウト開始前に保存した STREAM_MUSIC の音量。
+         * -1 は「未保存」。フェード完了・一時停止時に元に戻し、-1 にリセットする。
+         */
+        @Volatile
+        var savedMusicVolume: Int = -1
 
         /** ユーザー手動スキップ直後に自動 pause を抑止する期限 (elapsedRealtime ms) */
         @Volatile
@@ -221,14 +230,36 @@ class MyNotificationListener : NotificationListenerService() {
 
                 val pos = estimatePositionMs(state)
                 val remaining = duration - pos
-                if (remaining > PRE_END_PAUSE_MS) return
 
+                if (remaining > PRE_END_FADE_START_MS) return
+
+                val am = this@MyNotificationListener.getSystemService(AUDIO_SERVICE) as AudioManager
+
+                if (remaining > PRE_END_PAUSE_MS) {
+                    // フェードゾーン (5秒前〜3.5秒前): 音量を線形に下げる
+                    if (savedMusicVolume < 0) {
+                        savedMusicVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    }
+                    val fadeRange = (PRE_END_FADE_START_MS - PRE_END_PAUSE_MS).toFloat()
+                    val progress = ((remaining - PRE_END_PAUSE_MS) / fadeRange).coerceIn(0f, 1f)
+                    val targetVol = (savedMusicVolume * progress).toInt().coerceAtLeast(0)
+                    am.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0)
+                    return
+                }
+
+                // 3.5秒前に到達 → 一時停止してトークへ移行
                 preEndPauseSentForTrack = true
                 preEndPending = true  // Flutter が void talk を完了するまでトラック変更通知をバッファリング
                 holdPlayback = true  // 次曲の自動再生を即時ブロック（Flutter往復不要）
+                // 音量をフェード前の値に戻してからポーズ（Talk がすぐ全音量で再生できる）
+                val restored = savedMusicVolume
+                savedMusicVolume = -1
+                if (restored >= 0) {
+                    am.setStreamVolume(AudioManager.STREAM_MUSIC, restored, 0)
+                }
                 controller.transportControls.pause()
                 sendTrackEndingSoon(remaining, duration, pos, packageName)
-                Log.d(TAG, "djActive: pre-end pause fired (remaining=${remaining}ms, pos=${pos}ms, duration=${duration}ms)")
+                Log.d(TAG, "djActive: pre-end fade+pause fired (remaining=${remaining}ms, restoredVol=${restored})")
             }
 
             private fun schedulePreEndMonitorIfNeeded() {
@@ -280,6 +311,13 @@ class MyNotificationListener : NotificationListenerService() {
 
                 if (isTrackChanged) {
                     preEndPauseSentForTrack = false
+                    // フェード中にトラックが変わった場合は音量を即座に復元する
+                    val saved = savedMusicVolume
+                    if (saved >= 0) {
+                        savedMusicVolume = -1
+                        val am = this@MyNotificationListener.getSystemService(AUDIO_SERVICE) as AudioManager
+                        am.setStreamVolume(AudioManager.STREAM_MUSIC, saved, 0)
+                    }
                     // DJモードON時に自然に曲が切り替わった場合、VoidTalkとの音声被りを防ぐため即座に一時停止しブロックする。
                     // 30秒未満の短い曲の場合は、ギャップレス再生対策による強制一時停止を行わない。
                     if (djActive && !isUserSkipGuardActive() && !holdPlayback && currentDurationMs > 30000L) {

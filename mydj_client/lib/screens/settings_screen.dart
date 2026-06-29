@@ -1,12 +1,9 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
 import '../providers/settings_provider.dart';
 import '../models/dj_preferences.dart';
-import '../models/host_config.dart';
 import '../services/host_client.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -26,14 +23,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
 
   bool _isTesting = false;
-  bool _isLoadingConfig = false;
   bool _isDetectingLocation = false;
-  bool _isPreviewingVoice = false;
-  HostConfig? _hostConfig;
-  final AudioPlayer _previewPlayer = AudioPlayer();
 
-  String? _selectedModel;
-  String? _selectedSpeaker;
   String _talkLength = 'medium';
   String _personality = 'standard';
   int _talkFrequency = 1;
@@ -54,8 +45,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _hostCtrl.text = settings.hostAddress;
     _portCtrl.text = settings.port.toString();
     final prefs = settings.djPreferences;
-    _selectedModel = prefs.llmModel;
-    _selectedSpeaker = prefs.ttsSpeaker;
     _talkLength = prefs.talkLength;
     _personality = prefs.personality;
     _cityCtrl.text = prefs.weatherCity;
@@ -73,38 +62,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _usernameCtrl.dispose();
     _djNameCtrl.dispose();
     _customPromptCtrl.dispose();
-    _previewPlayer.dispose();
     super.dispose();
   }
 
-  Future<void> _previewVoice(String speaker) async {
-    if (_isPreviewingVoice) return;
-    final host = _hostCtrl.text.trim();
-    final port = int.tryParse(_portCtrl.text.trim()) ?? 8000;
-    if (host.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter host address first')),
-      );
-      return;
-    }
-    setState(() => _isPreviewingVoice = true);
-    try {
-      final client = HostClient(hostAddress: host, port: port);
-      final Uint8List bytes = await client.fetchVoicePreview(speaker);
-      if (!mounted) return;
-      final source = _BytesStreamSource(bytes);
-      await _previewPlayer.setAudioSource(source);
-      await _previewPlayer.seek(Duration.zero);
-      await _previewPlayer.play();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Preview failed: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isPreviewingVoice = false);
-    }
+  void _showTopBanner(String message, {bool isError = false}) {
+    final color = isError ? const Color(0xFFCC4444) : const Color(0xFF44CC44);
+    final bg = isError ? const Color(0xFF1A0D0D) : const Color(0xFF0D1A0D);
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentMaterialBanner();
+    messenger.showMaterialBanner(MaterialBanner(
+      backgroundColor: bg,
+      dividerColor: Colors.transparent,
+      content: Row(
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: 6)],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            message,
+            style: GoogleFonts.inter(fontSize: 12, color: color, letterSpacing: 0.5),
+          ),
+        ],
+      ),
+      actions: [
+        IconButton(
+          icon: Icon(Icons.close, size: 16, color: color),
+          onPressed: () => messenger.hideCurrentMaterialBanner(),
+        ),
+      ],
+    ));
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) messenger.hideCurrentMaterialBanner();
+    });
   }
 
   Future<void> _testConnection() async {
@@ -117,26 +113,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final ok = await client.ping();
       if (!mounted) return;
       if (ok) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Connected')),
-        );
+        _showTopBanner('Connected');
         context
             .read<SettingsProvider>()
             .setConnectionStatus(ConnectionStatus.connected);
         await _loadConfig(client);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Connection failed')),
-        );
+        _showTopBanner('Connection failed', isError: true);
         context
             .read<SettingsProvider>()
             .setConnectionStatus(ConnectionStatus.error);
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      _showTopBanner('Error: $e', isError: true);
       context
           .read<SettingsProvider>()
           .setConnectionStatus(ConnectionStatus.error);
@@ -146,29 +136,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadConfig(HostClient client) async {
-    setState(() => _isLoadingConfig = true);
     try {
       final config = await client.fetchConfig();
       if (!mounted) return;
-      final settings = context.read<SettingsProvider>();
-      await settings.repairWithHostConfig(config);
-      if (!mounted) return;
-      setState(() {
-        _hostConfig = config;
-        final prefs = settings.djPreferences;
-        _selectedModel = (prefs.llmModel != null &&
-                config.llmModels.contains(prefs.llmModel))
-            ? prefs.llmModel
-            : config.defaultLlm;
-        _selectedSpeaker = (prefs.ttsSpeaker != null &&
-                config.ttsSpeakers.contains(prefs.ttsSpeaker))
-            ? prefs.ttsSpeaker
-            : config.defaultSpeaker;
-      });
+      await context.read<SettingsProvider>().repairWithHostConfig(config);
     } catch (e) {
       debugPrint('fetchConfig error: $e');
-    } finally {
-      if (mounted) setState(() => _isLoadingConfig = false);
     }
   }
 
@@ -216,8 +189,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       int.tryParse(_portCtrl.text.trim()) ?? 8000,
     );
     await settings.saveDjPreferences(DjPreferences(
-      llmModel: _selectedModel,
-      ttsSpeaker: _selectedSpeaker,
       talkLength: _talkLength,
       weatherCity: _cityCtrl.text.trim(),
       personality: _personality,
@@ -231,9 +202,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final models = _hostConfig?.llmModels ?? [];
-    final speakers = _hostConfig?.ttsSpeakers ?? [];
-
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -300,7 +268,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.black),
                         )
-                      : const Text('Test Connection'),
+                      : const Text('Connect'),
                 ),
               ),
 
@@ -308,61 +276,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               // ---- DJ ----
               _sectionLabel('DJ'),
-              const SizedBox(height: 12),
-
-              // LLM モデル（サーバー接続後に表示）
-              if (_isLoadingConfig)
-                const LinearProgressIndicator(color: Colors.white)
-              else if (models.isNotEmpty) ...[
-                _dropdown(
-                  label: 'LLM Model',
-                  value: models.contains(_selectedModel)
-                      ? _selectedModel!
-                      : models.first,
-                  items: models,
-                  onChanged: (v) => setState(() => _selectedModel = v),
-                ),
-                const SizedBox(height: 12),
-                if (speakers.isNotEmpty)
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: _dropdown(
-                          label: 'TTS Voice',
-                          value: speakers.contains(_selectedSpeaker)
-                              ? _selectedSpeaker!
-                              : speakers.first,
-                          items: speakers,
-                          onChanged: (v) => setState(() => _selectedSpeaker = v),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Tooltip(
-                        message: 'Preview voice',
-                        child: IconButton(
-                          onPressed: _isPreviewingVoice
-                              ? null
-                              : () => _previewVoice(
-                                    speakers.contains(_selectedSpeaker)
-                                        ? _selectedSpeaker!
-                                        : speakers.first,
-                                  ),
-                          icon: _isPreviewingVoice
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: Colors.white54),
-                                )
-                              : const Icon(Icons.play_circle_outline,
-                                  color: Colors.white54, size: 28),
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-
               const SizedBox(height: 12),
 
               _dropdown(
@@ -535,20 +448,3 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
 }
 
-class _BytesStreamSource extends StreamAudioSource {
-  final Uint8List _bytes;
-  _BytesStreamSource(this._bytes) : super(tag: 'voice-preview');
-
-  @override
-  Future<StreamAudioResponse> request([int? start, int? end]) async {
-    final s = start ?? 0;
-    final e = end ?? _bytes.length;
-    return StreamAudioResponse(
-      sourceLength: _bytes.length,
-      contentLength: e - s,
-      offset: s,
-      stream: Stream.value(_bytes.sublist(s, e)),
-      contentType: 'audio/wav',
-    );
-  }
-}

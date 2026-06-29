@@ -50,10 +50,6 @@ models/
 checkpoints/
 fish-speech/checkpoints/
 
-# ---- External source trees (keep as separate upstream repos) ----
-fish-speech/
-s2.cpp/
-
 # ---- Optional caches ----
 .cache/
 

@@ -17,9 +17,11 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _notificationService = NotificationService();
+  final _bannerKey = GlobalKey<_ConnectedFlashBannerState>();
   StreamSubscription? _trackSubscription;
   StreamSubscription? _trackEndingSubscription;
   Future<void> _eventChain = Future.value();
+  ConnectionStatus? _prevConnStatus;
 
   @override
   void initState() {
@@ -89,40 +91,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
     final dj = context.watch<DjProvider>();
-
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: _buildAppBar(context, settings, dj),
-      body: Column(
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                // アルバムアート（上角丸）+ スワイプ
-                _SwipeableAlbumArt(albumArt: dj.currentTrack?.albumArt),
-
-                // グラデーションオーバーレイ
-                const _GradientOverlay(),
-
-                // 楽曲情報
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: _TrackInfo(dj: dj, settings: settings),
-                ),
-              ],
-            ),
-          ),
-          _buildFooter(context, dj, settings),
-        ],
-      ),
-    );
-  }
-
-  AppBar _buildAppBar(
-      BuildContext context, SettingsProvider settings, DjProvider dj) {
-    // サービス ON 中はホスト接続確認の結果を優先表示する
     final connStatus = dj.isServiceEnabled
         ? (dj.hostConnected == true
             ? ConnectionStatus.connected
@@ -131,13 +99,95 @@ class _HomeScreenState extends State<HomeScreen> {
                 : ConnectionStatus.unconfigured)
         : settings.connectionStatus;
 
+    // connected への遷移を検知してバナーを表示
+    if (_prevConnStatus != connStatus) {
+      if (connStatus == ConnectionStatus.connected && _prevConnStatus != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _bannerKey.currentState?.show();
+        });
+      }
+      _prevConnStatus = connStatus;
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: _buildAppBar(context, connStatus),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    // アルバムアート（上角丸）+ スワイプ
+                    _SwipeableAlbumArt(albumArt: dj.currentTrack?.albumArt),
+
+                    // グラデーションオーバーレイ
+                    const _GradientOverlay(),
+
+                    // 楽曲情報
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: _TrackInfo(dj: dj, settings: settings),
+                    ),
+                  ],
+                ),
+              ),
+              _buildFooter(context, dj, settings),
+            ],
+          ),
+          // 接続直後のフラッシュバナー（画面上部にオーバーレイ）
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _ConnectedFlashBanner(key: _bannerKey),
+          ),
+        ],
+      ),
+    );
+  }
+
+  AppBar _buildAppBar(BuildContext context, ConnectionStatus status) {
+    Color? dotColor;
+    bool dotGlow = false;
+    if (status == ConnectionStatus.connected) {
+      dotColor = const Color(0xFF44CC44);
+      dotGlow = true;
+    } else if (status == ConnectionStatus.error) {
+      dotColor = const Color(0xFFCC4444);
+    }
+
     return AppBar(
       backgroundColor: Colors.black,
       elevation: 0,
       title: Image.asset('assets/logo.png', height: 30),
       actions: [
-        _ConnectionDot(status: connStatus),
-        const SizedBox(width: 4),
+        if (dotColor != null)
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Center(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 400),
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: dotColor,
+                  shape: BoxShape.circle,
+                  boxShadow: dotGlow
+                      ? [
+                          BoxShadow(
+                            color: dotColor.withValues(alpha: 0.7),
+                            blurRadius: 8,
+                          )
+                        ]
+                      : null,
+                ),
+              ),
+            ),
+          ),
         IconButton(
           icon: const Icon(Icons.settings_outlined,
               size: 22, color: Colors.white),
@@ -461,22 +511,96 @@ class _TrackInfo extends StatelessWidget {
   }
 }
 
-// ---- 接続ステータスドット ----
-class _ConnectionDot extends StatelessWidget {
-  final ConnectionStatus status;
-  const _ConnectionDot({required this.status});
+// ---- 接続直後のフラッシュバナー ----
+class _ConnectedFlashBanner extends StatefulWidget {
+  const _ConnectedFlashBanner({super.key});
+
+  @override
+  State<_ConnectedFlashBanner> createState() => _ConnectedFlashBannerState();
+}
+
+class _ConnectedFlashBannerState extends State<_ConnectedFlashBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+  Timer? _hideTimer;
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+    );
+    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
+    _slide = Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void show() {
+    _hideTimer?.cancel();
+    if (!_visible) setState(() => _visible = true);
+    _ctrl.forward(from: 0);
+    _hideTimer = Timer(const Duration(milliseconds: 1800), () {
+      if (mounted) {
+        _ctrl.reverse().then((_) {
+          if (mounted) setState(() => _visible = false);
+        });
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (status) {
-      ConnectionStatus.connected => const Color(0xFF44CC44),
-      ConnectionStatus.error => const Color(0xFFCC4444),
-      ConnectionStatus.unconfigured => const Color(0xFF444444),
-    };
-    return Container(
-      width: 6,
-      height: 6,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    if (!_visible) return const SizedBox.shrink();
+    return SlideTransition(
+      position: _slide,
+      child: FadeTransition(
+        opacity: _fade,
+        child: Container(
+          width: double.infinity,
+          color: const Color(0xFF0D1A0D),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF44CC44),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF44CC44).withValues(alpha: 0.6),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'CONNECTED',
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF44CC44),
+                  letterSpacing: 1.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

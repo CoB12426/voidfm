@@ -207,7 +207,7 @@ _AIRBREAK_BITS: tuple[tuple[int, str, str], ...] = (
     (
         12,
         "micro-rant",
-        "Do a harmless tiny rant about something trivial, like cables, parking lots, app updates, vending machines, or office lighting.",
+        "Do a harmless tiny rant about something trivial, like parking lots, app updates, vending machines, office lighting, elevator music, confusing menus, or shrinking bag sizes.",
     ),
     (
         11,
