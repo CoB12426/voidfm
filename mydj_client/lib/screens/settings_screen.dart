@@ -23,6 +23,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
 
   bool _isTesting = false;
+  bool _isConnected = false;
   bool _isDetectingLocation = false;
 
   String _talkLength = 'medium';
@@ -65,47 +66,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-  void _showTopBanner(String message, {bool isError = false}) {
-    final color = isError ? const Color(0xFFCC4444) : const Color(0xFF44CC44);
-    final bg = isError ? const Color(0xFF1A0D0D) : const Color(0xFF0D1A0D);
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentMaterialBanner();
-    messenger.showMaterialBanner(MaterialBanner(
-      backgroundColor: bg,
-      dividerColor: Colors.transparent,
-      content: Row(
-        children: [
-          Container(
-            width: 5,
-            height: 5,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: 6)],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            message,
-            style: GoogleFonts.inter(fontSize: 12, color: color, letterSpacing: 0.5),
-          ),
-        ],
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: const Color(0xFF1A0D0D),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFF3A1A1A)),
       ),
-      actions: [
-        IconButton(
-          icon: Icon(Icons.close, size: 16, color: color),
-          onPressed: () => messenger.hideCurrentMaterialBanner(),
-        ),
-      ],
+      content: Text(
+        message,
+        style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFFCC4444)),
+      ),
     ));
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) messenger.hideCurrentMaterialBanner();
-    });
   }
 
   Future<void> _testConnection() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _isTesting = true);
+    setState(() {
+      _isTesting = true;
+      _isConnected = false;
+    });
     final host = _hostCtrl.text.trim();
     final port = int.tryParse(_portCtrl.text.trim()) ?? 8000;
     final client = HostClient(hostAddress: host, port: port);
@@ -113,20 +94,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final ok = await client.ping();
       if (!mounted) return;
       if (ok) {
-        _showTopBanner('Connected');
+        setState(() => _isConnected = true);
         context
             .read<SettingsProvider>()
             .setConnectionStatus(ConnectionStatus.connected);
         await _loadConfig(client);
       } else {
-        _showTopBanner('Connection failed', isError: true);
+        _showErrorSnackBar('Connection failed');
         context
             .read<SettingsProvider>()
             .setConnectionStatus(ConnectionStatus.error);
       }
     } catch (e) {
       if (!mounted) return;
-      _showTopBanner('Error: $e', isError: true);
+      _showErrorSnackBar('Error: $e');
       context
           .read<SettingsProvider>()
           .setConnectionStatus(ConnectionStatus.error);
@@ -237,6 +218,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                     labelText: 'Address', hintText: '100.x.x.x'),
+                onChanged: (_) {
+                  if (_isConnected) setState(() => _isConnected = false);
+                },
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
@@ -248,6 +232,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 decoration:
                     const InputDecoration(labelText: 'Port', hintText: '8000'),
                 keyboardType: TextInputType.number,
+                onChanged: (_) {
+                  if (_isConnected) setState(() => _isConnected = false);
+                },
                 validator: (v) {
                   final n = int.tryParse(v ?? '');
                   return (n == null || n < 1 || n > 65535)
@@ -261,6 +248,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _isTesting ? null : _testConnection,
+                  style: _isConnected
+                      ? ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF1A3A1A),
+                          foregroundColor: const Color(0xFF44CC44),
+                        )
+                      : null,
                   child: _isTesting
                       ? const SizedBox(
                           width: 16,
@@ -268,7 +261,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.black),
                         )
-                      : const Text('Connect'),
+                      : _isConnected
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.check, size: 16),
+                                const SizedBox(width: 6),
+                                Text('Connected',
+                                    style: GoogleFonts.inter(
+                                        fontWeight: FontWeight.w600)),
+                              ],
+                            )
+                          : const Text('Connect'),
                 ),
               ),
 

@@ -17,11 +17,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _notificationService = NotificationService();
-  final _bannerKey = GlobalKey<_ConnectedFlashBannerState>();
   StreamSubscription? _trackSubscription;
   StreamSubscription? _trackEndingSubscription;
   Future<void> _eventChain = Future.value();
-  ConnectionStatus? _prevConnStatus;
 
   @override
   void initState() {
@@ -99,52 +97,31 @@ class _HomeScreenState extends State<HomeScreen> {
                 : ConnectionStatus.unconfigured)
         : settings.connectionStatus;
 
-    // connected への遷移を検知してバナーを表示
-    if (_prevConnStatus != connStatus) {
-      if (connStatus == ConnectionStatus.connected && _prevConnStatus != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _bannerKey.currentState?.show();
-        });
-      }
-      _prevConnStatus = connStatus;
-    }
-
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: _buildAppBar(context, connStatus),
-      body: Stack(
+      body: Column(
         children: [
-          Column(
-            children: [
-              Expanded(
-                child: Stack(
-                  children: [
-                    // アルバムアート（上角丸）+ スワイプ
-                    _SwipeableAlbumArt(albumArt: dj.currentTrack?.albumArt),
+          Expanded(
+            child: Stack(
+              children: [
+                // アルバムアート（上角丸）+ スワイプ
+                _SwipeableAlbumArt(albumArt: dj.currentTrack?.albumArt),
 
-                    // グラデーションオーバーレイ
-                    const _GradientOverlay(),
+                // グラデーションオーバーレイ
+                const _GradientOverlay(),
 
-                    // 楽曲情報
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: _TrackInfo(dj: dj, settings: settings),
-                    ),
-                  ],
+                // 楽曲情報
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _TrackInfo(dj: dj, settings: settings),
                 ),
-              ),
-              _buildFooter(context, dj, settings),
-            ],
+              ],
+            ),
           ),
-          // 接続直後のフラッシュバナー（画面上部にオーバーレイ）
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: _ConnectedFlashBanner(key: _bannerKey),
-          ),
+          _buildFooter(context, dj, settings),
         ],
       ),
     );
@@ -506,100 +483,6 @@ class _TrackInfo extends StatelessWidget {
             ),
           ],
         ],
-      ),
-    );
-  }
-}
-
-// ---- 接続直後のフラッシュバナー ----
-class _ConnectedFlashBanner extends StatefulWidget {
-  const _ConnectedFlashBanner({super.key});
-
-  @override
-  State<_ConnectedFlashBanner> createState() => _ConnectedFlashBannerState();
-}
-
-class _ConnectedFlashBannerState extends State<_ConnectedFlashBanner>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _fade;
-  late final Animation<Offset> _slide;
-  Timer? _hideTimer;
-  bool _visible = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 380),
-    );
-    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
-    _slide = Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
-  }
-
-  @override
-  void dispose() {
-    _hideTimer?.cancel();
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void show() {
-    _hideTimer?.cancel();
-    if (!_visible) setState(() => _visible = true);
-    _ctrl.forward(from: 0);
-    _hideTimer = Timer(const Duration(milliseconds: 1800), () {
-      if (mounted) {
-        _ctrl.reverse().then((_) {
-          if (mounted) setState(() => _visible = false);
-        });
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_visible) return const SizedBox.shrink();
-    return SlideTransition(
-      position: _slide,
-      child: FadeTransition(
-        opacity: _fade,
-        child: Container(
-          width: double.infinity,
-          color: const Color(0xFF0D1A0D),
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 5,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF44CC44),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF44CC44).withValues(alpha: 0.6),
-                      blurRadius: 6,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'CONNECTED',
-                style: GoogleFonts.inter(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF44CC44),
-                  letterSpacing: 1.5,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
