@@ -15,11 +15,11 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _hostCtrl         = TextEditingController();
-  final _portCtrl         = TextEditingController();
-  final _cityCtrl         = TextEditingController();
-  final _usernameCtrl     = TextEditingController();
-  final _djNameCtrl       = TextEditingController();
+  final _hostCtrl = TextEditingController();
+  final _portCtrl = TextEditingController();
+  final _cityCtrl = TextEditingController();
+  final _usernameCtrl = TextEditingController();
+  final _djNameCtrl = TextEditingController();
   final _customPromptCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
@@ -29,11 +29,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   HostConfig? _hostConfig;
 
   String? _selectedModel;
+  String? _selectedSpeaker;
   String _talkLength = 'medium';
   String _personality = 'standard';
   int _talkFrequency = 1;
 
-  static const _personalityItems = ['standard', 'energetic', 'chill', 'intellectual', 'comedian'];
+  static const _personalityItems = [
+    'standard',
+    'energetic',
+    'chill',
+    'intellectual',
+    'comedian'
+  ];
   static const _personalityLabels = ['スタンダード', 'ハイテンション', 'チル', 'インテリ', 'お笑い系'];
 
   @override
@@ -44,13 +51,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _portCtrl.text = settings.port.toString();
     final prefs = settings.djPreferences;
     _selectedModel = prefs.llmModel;
+    _selectedSpeaker = prefs.ttsSpeaker;
     _talkLength = prefs.talkLength;
     _personality = prefs.personality;
-    _cityCtrl.text         = prefs.weatherCity;
-    _usernameCtrl.text     = prefs.username;
-    _djNameCtrl.text       = prefs.djName;
+    _cityCtrl.text = prefs.weatherCity;
+    _usernameCtrl.text = prefs.username;
+    _djNameCtrl.text = prefs.djName;
     _customPromptCtrl.text = prefs.customPrompt;
-    _talkFrequency         = prefs.talkFrequency;
+    _talkFrequency = prefs.talkFrequency;
   }
 
   @override
@@ -77,20 +85,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Connected')),
         );
-        context.read<SettingsProvider>().setConnectionStatus(ConnectionStatus.connected);
+        context
+            .read<SettingsProvider>()
+            .setConnectionStatus(ConnectionStatus.connected);
         await _loadConfig(client);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Connection failed')),
         );
-        context.read<SettingsProvider>().setConnectionStatus(ConnectionStatus.error);
+        context
+            .read<SettingsProvider>()
+            .setConnectionStatus(ConnectionStatus.error);
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
-      context.read<SettingsProvider>().setConnectionStatus(ConnectionStatus.error);
+      context
+          .read<SettingsProvider>()
+          .setConnectionStatus(ConnectionStatus.error);
     } finally {
       if (mounted) setState(() => _isTesting = false);
     }
@@ -101,9 +115,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final config = await client.fetchConfig();
       if (!mounted) return;
+      final settings = context.read<SettingsProvider>();
+      await settings.repairWithHostConfig(config);
+      if (!mounted) return;
       setState(() {
         _hostConfig = config;
-        _selectedModel ??= config.defaultLlm;
+        final prefs = settings.djPreferences;
+        _selectedModel = (prefs.llmModel != null &&
+                config.llmModels.contains(prefs.llmModel))
+            ? prefs.llmModel
+            : config.defaultLlm;
+        _selectedSpeaker = (prefs.ttsSpeaker != null &&
+                config.ttsSpeakers.contains(prefs.ttsSpeaker))
+            ? prefs.ttsSpeaker
+            : config.defaultSpeaker;
       });
     } catch (e) {
       debugPrint('fetchConfig error: $e');
@@ -156,12 +181,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       int.tryParse(_portCtrl.text.trim()) ?? 8000,
     );
     await settings.saveDjPreferences(DjPreferences(
-      llmModel:     _selectedModel,
-      talkLength:   _talkLength,
-      weatherCity:  _cityCtrl.text.trim(),
-      personality:  _personality,
-      username:     _usernameCtrl.text.trim(),
-      djName:       _djNameCtrl.text.trim(),
+      llmModel: _selectedModel,
+      ttsSpeaker: _selectedSpeaker,
+      talkLength: _talkLength,
+      weatherCity: _cityCtrl.text.trim(),
+      personality: _personality,
+      username: _usernameCtrl.text.trim(),
+      djName: _djNameCtrl.text.trim(),
       customPrompt: _customPromptCtrl.text.trim(),
       talkFrequency: _talkFrequency,
     ));
@@ -171,6 +197,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final models = _hostConfig?.llmModels ?? [];
+    final speakers = _hostConfig?.ttsSpeakers ?? [];
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -185,7 +212,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: _save,
             child: Text(
               'Save',
-              style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
+              style: GoogleFonts.inter(
+                  color: Colors.white, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -204,19 +232,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               TextFormField(
                 controller: _hostCtrl,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Address', hintText: '100.x.x.x'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                decoration: const InputDecoration(
+                    labelText: 'Address', hintText: '100.x.x.x'),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
               const SizedBox(height: 12),
 
               TextFormField(
                 controller: _portCtrl,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Port', hintText: '8000'),
+                decoration:
+                    const InputDecoration(labelText: 'Port', hintText: '8000'),
                 keyboardType: TextInputType.number,
                 validator: (v) {
                   final n = int.tryParse(v ?? '');
-                  return (n == null || n < 1 || n > 65535) ? 'Invalid port' : null;
+                  return (n == null || n < 1 || n > 65535)
+                      ? 'Invalid port'
+                      : null;
                 },
               ),
               const SizedBox(height: 16),
@@ -227,8 +260,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onPressed: _isTesting ? null : _testConnection,
                   child: _isTesting
                       ? const SizedBox(
-                          width: 16, height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.black),
                         )
                       : const Text('Test Connection'),
                 ),
@@ -243,13 +278,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
               // LLM モデル（サーバー接続後に表示）
               if (_isLoadingConfig)
                 const LinearProgressIndicator(color: Colors.white)
-              else if (models.isNotEmpty)
+              else if (models.isNotEmpty) ...[
                 _dropdown(
                   label: 'LLM Model',
-                  value: models.contains(_selectedModel) ? _selectedModel! : models.first,
+                  value: models.contains(_selectedModel)
+                      ? _selectedModel!
+                      : models.first,
                   items: models,
                   onChanged: (v) => setState(() => _selectedModel = v),
                 ),
+                const SizedBox(height: 12),
+                if (speakers.isNotEmpty)
+                  _dropdown(
+                    label: 'TTS Voice',
+                    value: speakers.contains(_selectedSpeaker)
+                        ? _selectedSpeaker!
+                        : speakers.first,
+                    items: speakers,
+                    onChanged: (v) => setState(() => _selectedSpeaker = v),
+                  ),
+              ],
 
               const SizedBox(height: 12),
 
@@ -282,7 +330,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Every 4 songs',
                   'Every 5 songs',
                 ],
-                onChanged: (v) => setState(() => _talkFrequency = int.parse(v!)),
+                onChanged: (v) =>
+                    setState(() => _talkFrequency = int.parse(v!)),
               ),
               const SizedBox(height: 12),
 
@@ -297,7 +346,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 6),
               Text(
                 'Optional. The DJ will introduce themselves by this name.',
-                style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF555555)),
+                style: GoogleFonts.inter(
+                    fontSize: 11, color: const Color(0xFF555555)),
               ),
 
               const SizedBox(height: 40),
@@ -317,7 +367,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 6),
               Text(
                 'Optional. The DJ will occasionally call you by name.',
-                style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF555555)),
+                style: GoogleFonts.inter(
+                    fontSize: 11, color: const Color(0xFF555555)),
               ),
 
               const SizedBox(height: 40),
@@ -336,7 +387,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ? const Padding(
                           padding: EdgeInsets.all(12),
                           child: SizedBox(
-                            width: 16, height: 16,
+                            width: 16,
+                            height: 16,
                             child: CircularProgressIndicator(
                                 strokeWidth: 2, color: Colors.white54),
                           ),
@@ -352,7 +404,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 6),
               Text(
                 'Leave empty to use server default. GPS fills in coordinates.',
-                style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF555555)),
+                style: GoogleFonts.inter(
+                    fontSize: 11, color: const Color(0xFF555555)),
               ),
 
               const SizedBox(height: 40),
@@ -366,7 +419,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                   labelText: 'Additional Instructions',
-                  hintText: 'e.g. This is a study session. Keep the mood calm and focused.',
+                  hintText:
+                      'e.g. This is a study session. Keep the mood calm and focused.',
                   alignLabelWithHint: true,
                 ),
                 maxLines: 4,
@@ -375,7 +429,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 6),
               Text(
                 'Optional. Appended to every DJ prompt as extra instructions.',
-                style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF555555)),
+                style: GoogleFonts.inter(
+                    fontSize: 11, color: const Color(0xFF555555)),
               ),
 
               const SizedBox(height: 32),
@@ -404,7 +459,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required void Function(String?) onChanged,
   }) =>
       DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         dropdownColor: const Color(0xFF111111),
         style: const TextStyle(color: Colors.white),
         decoration: InputDecoration(labelText: label),

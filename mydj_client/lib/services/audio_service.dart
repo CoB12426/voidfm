@@ -1,5 +1,6 @@
+// ignore_for_file: experimental_member_use
+
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
@@ -11,7 +12,8 @@ import 'package:just_audio/just_audio.dart';
 ///   2. playTalk()    — DJ トーク音声を再生（完了まで待機）
 ///   3. resumeMusic() — 音楽プレイヤーを再開
 class AudioService {
-  static const _mediaChannel = MethodChannel('com.example.voidfm/media_session');
+  static const _mediaChannel =
+      MethodChannel('com.example.voidfm/media_session');
 
   // シングルトンで管理
   static final AudioService _instance = AudioService._internal();
@@ -52,6 +54,7 @@ class AudioService {
   ///
   /// preloadIntro() で同じパスがロード済みの場合は setAudioSource をスキップし、
   /// seek + play だけで開始することで遅延を最小化する。
+  /// 再生前に processingState が ready になるまで待機し、冒頭が切れるのを防ぐ。
   Future<bool> playAsset(String assetPath) async {
     try {
       // プリロード済みの場合はアセットの再ロードをスキップ（高速パス）
@@ -68,13 +71,30 @@ class AudioService {
         if (_player.playing) await _player.stop();
         await _player.setAudioSource(AudioSource.asset(assetPath));
         _loadedAssetPath = assetPath;
+        debugPrint('AudioService: playAsset slow-path (setAudioSource done)');
+      }
+
+      // ロードが完了していることを確認してから再生する（冒頭切れ防止）
+      if (_player.processingState == ProcessingState.loading ||
+          _player.processingState == ProcessingState.buffering) {
+        debugPrint('AudioService: waiting for ready state before play...');
+        try {
+          await _player.processingStateStream
+              .firstWhere((s) =>
+                  s == ProcessingState.ready || s == ProcessingState.completed)
+              .timeout(const Duration(seconds: 5));
+        } catch (_) {
+          debugPrint('AudioService: ready wait timed out, proceeding');
+        }
       }
 
       await _player.play();
       // completed のみを正常終了扱いにする（idle は中断の可能性がある）
-      await _player.playerStateStream.firstWhere(
+      await _player.playerStateStream
+          .firstWhere(
         (s) => s.processingState == ProcessingState.completed,
-      ).timeout(const Duration(seconds: 30), onTimeout: () {
+      )
+          .timeout(const Duration(seconds: 30), onTimeout: () {
         _player.stop();
         return _player.playerState;
       });
@@ -87,8 +107,10 @@ class AudioService {
 
   /// DJ トーク音声（MP3 / WAV）を再生する。完了まで await する。
   /// 音楽は事前に pauseMusic() で停止済みであること。
-  Future<void> playTalk(Uint8List wavBytes, {String contentType = 'audio/mpeg'}) async {
-    debugPrint('AudioService: playTalk start (${wavBytes.length} bytes, $contentType)');
+  Future<void> playTalk(Uint8List wavBytes,
+      {String contentType = 'audio/mpeg'}) async {
+    debugPrint(
+        'AudioService: playTalk start (${wavBytes.length} bytes, $contentType)');
     if (_player.playing) {
       debugPrint('AudioService: playTalk — stopping current playback');
       await _player.stop();
@@ -98,8 +120,9 @@ class AudioService {
       final source = _BytesAudioSource(wavBytes, contentType: contentType);
       debugPrint('AudioService: playTalk — setAudioSource()');
       await _player.setAudioSource(source);
-      debugPrint('AudioService: playTalk — setAudioSource done, duration=${_player.duration}');
-      
+      debugPrint(
+          'AudioService: playTalk — setAudioSource done, duration=${_player.duration}');
+
       debugPrint('AudioService: playTalk — calling play()');
       await _player.play();
       debugPrint('AudioService: playTalk — play() returned');
@@ -108,11 +131,15 @@ class AudioService {
       // idle は setAudioSource/stop 直後にも出るため、完了扱いにしない。
       final estimatedSec = (_player.duration?.inSeconds ?? 30) + 20;
       final waitTimeout = Duration(seconds: estimatedSec);
-      debugPrint('AudioService: playTalk — waiting completed (timeout=$waitTimeout)');
-      await _player.playerStateStream.firstWhere(
+      debugPrint(
+          'AudioService: playTalk — waiting completed (timeout=$waitTimeout)');
+      await _player.playerStateStream
+          .firstWhere(
         (s) => s.processingState == ProcessingState.completed,
-      ).timeout(waitTimeout, onTimeout: () {
-        debugPrint('AudioService: playTalk timeout ($waitTimeout), stopping player');
+      )
+          .timeout(waitTimeout, onTimeout: () {
+        debugPrint(
+            'AudioService: playTalk timeout ($waitTimeout), stopping player');
         _player.stop();
         return _player.playerState;
       });

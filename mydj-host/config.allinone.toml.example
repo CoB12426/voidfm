@@ -3,17 +3,34 @@ port = 8000
 host = "0.0.0.0"
 
 [llm]
-# all-in-one compose 内のサービス名を参照
-ollama_url = "http://ollama:11434"
-default_model = "llama3.2"
+# OpenAI-compatible Chat Completions API.
+provider = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+api_key = "env:OPENAI_API_KEY"
+# "auto" follows the first model reported by /v1/models, useful for llama.cpp.
+# Set a concrete name such as "gpt-4o-mini" if your provider requires it.
+default_model = "auto"
+temperature = 0.7
+max_tokens = 220
+# llama.cpp thinking models: ask the chat template to emit final text in content.
+# chat_template_kwargs = { enable_thinking = false }
+
+# all-in-one compose で Ollama を使う場合:
+# provider = "ollama"
+# ollama_url = "http://ollama:11434"
+# default_model = "llama3.2"
+# keep_alive = "10m"
 
 [tts]
-mode = "subprocess"
+mode = "s2_server"
 s2_binary    = "/models/s2"
 s2_model     = "/models/s2-pro-q4_k_m.gguf"
 s2_tokenizer = "/models/tokenizer.json"
-# 転送フォーマット: mp3（推奨・軽量）/ wav / opus
-audio_format = "mp3"
+s2_server_host = "127.0.0.1"
+s2_server_port = 3030
+cuda_device = 0
+# s2.cpp server returns WAV.
+audio_format = "wav"
 
 [dj]
 default_language = "en"

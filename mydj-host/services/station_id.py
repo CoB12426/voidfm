@@ -27,7 +27,11 @@ async def warmup(cfg: dict) -> None:
     _audio_cache.clear()
     for phrase in _PHRASES:
         try:
-            audio = await tts_client.synthesize_speech(cfg=cfg, text=phrase)
+            audio = await tts_client.synthesize_speech(
+                cfg=cfg,
+                text=phrase,
+                priority="low",
+            )
             _audio_cache.append(audio)
             logger.info("[station_id] cached: %r (%d bytes)", phrase, len(audio))
         except Exception as e:

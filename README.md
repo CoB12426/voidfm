@@ -28,9 +28,30 @@ cp mydj-host/config.toml.example mydj-host/config.toml
 pip install -r mydj-host/requirements.txt
 ```
 
-### Step 3 — Place External Models
+### Step 3 — Configure LLM API and Place TTS Models
 
-If using `tts.mode = "subprocess"`, download and place the following files:
+The host can use any OpenAI-compatible Chat Completions API.
+
+```toml
+[llm]
+provider = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+api_key = "env:OPENAI_API_KEY"
+default_model = "auto"  # use /v1/models; set a concrete model if needed
+```
+
+To keep using Ollama, switch the LLM block to:
+
+```toml
+[llm]
+provider = "ollama"
+ollama_url = "http://localhost:11434"
+default_model = "llama3.2:1b"
+```
+
+For TTS, `tts.mode = "s2_server"` is recommended. The host starts `s2.cpp` once and keeps it running while the host is up, instead of launching the TTS engine for every request.
+
+Download and place the following files:
 
 - `s2` binary (build from `s2.cpp`)
     - https://github.com/rodrigomatta/s2.cpp
@@ -41,23 +62,17 @@ If using `tts.mode = "subprocess"`, download and place the following files:
 
 Edit `s2_binary`, `s2_model`, and `s2_tokenizer` in `mydj-host/config.toml` to match the paths where you placed the files.
 
-### Step 4 — Ollama
-
-Start Ollama on the host and pull a model.
-
-```bash
-ollama pull llama3.2:1b
-ollama serve
-```
-
-### Step 5 — Start the Host
+### Step 4 — Start the Host
 
 ```bash
 # Start host only (background)
-./scripts/dev_up.sh --host-only
+./scripts/dev_up.sh
+
+# Also start the Flutter app
+./scripts/dev_up.sh --client
 ```
 
-### Step 6 — Connect from Android
+### Step 5 — Connect from Android
 
 Open the Android app, enter the Ubuntu host's IP address and port `8000` in the Settings screen, then go ON AIR.
 

@@ -40,9 +40,30 @@ cp mydj-host/config.toml.example mydj-host/config.toml
 pip install -r mydj-host/requirements.txt
 ```
 
-### ステップ:3（外部モデルの配置）
+### ステップ:3（LLM API と TTS モデルの配置）
 
-`tts.mode = "subprocess"` を使う場合は、以下をダウンロードして配置してください。
+LLM は OpenAI 互換 API を指定できます。
+
+```toml
+[llm]
+provider = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+api_key = "env:OPENAI_API_KEY"
+default_model = "auto"  # /v1/models の現在モデルを使う。固定したい場合のみ具体名を指定
+```
+
+Ollama を使う場合は以下のように変更します。
+
+```toml
+[llm]
+provider = "ollama"
+ollama_url = "http://localhost:11434"
+default_model = "llama3.2:1b"
+```
+
+TTS は `tts.mode = "s2_server"` が推奨です。ホスト起動中に `s2.cpp` を常駐させ、リクエストごとの TTS エンジン起動を避けます。
+
+以下をダウンロードして配置してください。
 
 - `s2` バイナリ（`s2.cpp` をビルドして作成）
     - https://github.com/rodrigomatta/s2.cpp
@@ -53,23 +74,17 @@ pip install -r mydj-host/requirements.txt
 
 `mydj-host/config.toml` の `s2_binary / s2_model / s2_tokenizer` を各自の配置パスに合わせて編集してください。
 
-### ステップ:4（Ollama）
-
-ホストOS側で Ollama を起動し、モデルを pull します。
-
-```bash
-ollama pull llama3.2:1b
-ollama serve
-```
-
-### ステップ:5（起動）
+### ステップ:4（起動）
 
 ```bash
 # hostのみ起動（バックグラウンド）
-./scripts/dev_up.sh --host-only
+./scripts/dev_up.sh
+
+# Flutter アプリも続けて起動する場合
+./scripts/dev_up.sh --client
 ```
 
-### ステップ:6（Android 側接続）
+### ステップ:5（Android 側接続）
 
 Android アプリを開き、設定画面で Ubuntu の IP アドレスとポート `8000` を入力して ON AIR。
 

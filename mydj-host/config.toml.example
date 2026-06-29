@@ -3,22 +3,58 @@ port = 8000
 host = "0.0.0.0"
 
 [llm]
-ollama_url = "http://localhost:11434"
-default_model = "llama3.2:1b"
+# OpenAI-compatible Chat Completions API.
+# Examples:
+#   OpenAI:      base_url = "https://api.openai.com/v1"
+#   LM Studio:   base_url = "http://localhost:1234/v1"
+#   Ollama v1:   base_url = "http://localhost:11434/v1"
+provider = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+api_key = "env:OPENAI_API_KEY"
+# "auto" follows the first model reported by /v1/models, useful for llama.cpp.
+# Set a concrete name such as "gpt-4o-mini" if your provider requires it.
+default_model = "auto"
+temperature = 0.7
+max_tokens = 220
+# llama.cpp thinking models: ask the chat template to emit final text in content.
+# chat_template_kwargs = { enable_thinking = false }
+
+# Legacy Ollama API mode:
+# provider = "ollama"
+# ollama_url = "http://localhost:11434"
+# default_model = "llama3.2:1b"
+# keep_alive = "10m"
 
 [tts]
 # mode = "http"  で fish-speech の HTTP サーバーを使う
+# mode = "s2_server" で s2.cpp をホスト起動中だけ常駐させる（推奨）
 # mode = "subprocess" で s2.cpp バイナリを直接呼び出す
-mode = "subprocess"
+mode = "s2_server"
 
 # mode = "http" のとき使用
 fish_speech_url = "http://localhost:8080"
 default_speaker = "default"
 
-# mode = "subprocess" のとき使用
+# mode = "s2_server" / "subprocess" のとき使用
 s2_binary = "../s2.cpp/build/s2"
 s2_model   = "../models/s2-pro-q4_k_m.gguf"
 s2_tokenizer = "../models/tokenizer.json"
+s2_server_host = "127.0.0.1"
+s2_server_port = 3030
+s2_server_start_timeout = 120
+cuda_device = 0
+audio_format = "wav"
+
+# 任意: ボイスクローン用の参照音声と、その文字起こし。
+# default_ref_audio = "voices/default.wav"
+# default_ref_text = "The exact transcript of the reference audio."
+
+# 任意: アプリ側で選べる話者。
+# [tts.voices]
+# james = "voices/james.wav"
+#
+# [tts.voice_texts]
+# james = "The exact transcript of james.wav."
 
 [dj]
 default_language = "en"

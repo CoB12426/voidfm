@@ -5,6 +5,39 @@ import '../models/track_info.dart';
 import '../models/host_config.dart';
 import '../models/dj_preferences.dart';
 
+class TalkJobStatus {
+  final String jobId;
+  final String status;
+  final String? error;
+  final double? llmTime;
+  final double? ttsTime;
+  final double? totalTime;
+  final int? audioBytes;
+  final bool cached;
+
+  const TalkJobStatus({
+    required this.jobId,
+    required this.status,
+    this.error,
+    this.llmTime,
+    this.ttsTime,
+    this.totalTime,
+    this.audioBytes,
+    this.cached = false,
+  });
+
+  factory TalkJobStatus.fromJson(Map<String, dynamic> json) => TalkJobStatus(
+        jobId: json['job_id'] as String,
+        status: json['status'] as String,
+        error: json['error'] as String?,
+        llmTime: (json['llm_time'] as num?)?.toDouble(),
+        ttsTime: (json['tts_time'] as num?)?.toDouble(),
+        totalTime: (json['total_time'] as num?)?.toDouble(),
+        audioBytes: json['audio_bytes'] as int?,
+        cached: json['cached'] as bool? ?? false,
+      );
+}
+
 class HostClient {
   final String hostAddress;
   final int port;
@@ -19,6 +52,9 @@ class HostClient {
     http.Client? client,
   }) : _client = client;
 
+  String? _activeTalkJobId;
+  bool _cancelRequested = false;
+
   Uri _uri(String path) => Uri.parse('http://$hostAddress:$port$path');
 
   bool _isValidTrack(TrackInfo t) {
@@ -29,9 +65,8 @@ class HostClient {
   Future<bool> ping() async {
     final client = http.Client();
     try {
-      final response = await client
-          .get(_uri('/ping'))
-          .timeout(const Duration(seconds: 5));
+      final response =
+          await client.get(_uri('/ping')).timeout(const Duration(seconds: 5));
       return response.statusCode == 200;
     } finally {
       client.close();
@@ -66,39 +101,150 @@ class HostClient {
     List<TrackInfo> trackHistory = const [],
   }) async {
     if (!_isValidTrack(nextTrack)) {
-      throw Exception('fetchTalk aborted: invalid nextTrack (empty title/artist)');
+      throw Exception(
+          'fetchTalk aborted: invalid nextTrack (empty title/artist)');
     }
 
     final safePreviousTrack =
-        (previousTrack != null && _isValidTrack(previousTrack)) ? previousTrack : null;
+        (previousTrack != null && _isValidTrack(previousTrack))
+            ? previousTrack
+            : null;
     final safeTrackHistory = trackHistory.where(_isValidTrack).toList();
 
-    final client = _client ?? http.Client();
-    final owned = _client == null; // 自前で生成した場合のみ finally でclose
-    try {
-      final body = jsonEncode({
-        'next_track': nextTrack.toJson(),
-        if (safePreviousTrack != null) 'previous_track': safePreviousTrack.toJson(),
-        'preferences': preferences.toJson(),
-        if (safeTrackHistory.isNotEmpty)
-          'track_history': safeTrackHistory.map((t) => t.toJson()).toList(),
-      });
+    final body = jsonEncode({
+      'next_track': nextTrack.toJson(),
+      if (safePreviousTrack != null)
+        'previous_track': safePreviousTrack.toJson(),
+      'preferences': preferences.toJson(),
+      if (safeTrackHistory.isNotEmpty)
+        'track_history': safeTrackHistory.map((t) => t.toJson()).toList(),
+    });
 
-      final response = await client
+    return _fetchTalkJob(body);
+  }
+
+  Future<Uint8List> _fetchTalkJob(String body) async {
+    final client = _client ?? http.Client();
+    final owned = _client == null;
+    _cancelRequested = false;
+    String? jobId;
+
+    try {
+      final createResponse = await client
           .post(
-            _uri('/talk'),
+            _uri('/talk_jobs'),
             headers: {'Content-Type': 'application/json'},
             body: body,
           )
-          .timeout(const Duration(minutes: 10));
+          .timeout(const Duration(seconds: 15));
 
-      if (response.statusCode != 200) {
-        final detail = _extractDetail(response.body);
-        throw Exception('fetchTalk failed (${response.statusCode}): $detail');
+      if (createResponse.statusCode == 404 ||
+          createResponse.statusCode == 405) {
+        return _fetchTalkLegacy(client, body);
       }
-      return response.bodyBytes;
+      if (createResponse.statusCode != 200) {
+        final detail = _extractDetail(createResponse.body);
+        throw Exception(
+            'createTalkJob failed (${createResponse.statusCode}): $detail');
+      }
+
+      final createJson =
+          jsonDecode(createResponse.body) as Map<String, dynamic>;
+      jobId = createJson['job_id'] as String;
+      _activeTalkJobId = jobId;
+
+      while (true) {
+        if (_cancelRequested) {
+          throw Exception('fetchTalk cancelled');
+        }
+
+        final status = await _fetchTalkJobStatus(client, jobId);
+        if (status.status == 'succeeded') {
+          final audio = await client
+              .get(_uri('/talk_jobs/$jobId/audio'))
+              .timeout(const Duration(minutes: 2));
+          if (audio.statusCode != 200) {
+            final detail = _extractDetail(audio.body);
+            throw Exception(
+                'fetchTalk audio failed (${audio.statusCode}): $detail');
+          }
+          if (status.totalTime != null) {
+            print(
+              'DjProvider(HostClient): job $jobId done ${status.totalTime!.toStringAsFixed(2)} s '
+              '(LLM: ${status.llmTime?.toStringAsFixed(2)} s, '
+              'TTS: ${status.ttsTime?.toStringAsFixed(2)} s, '
+              'cached: ${status.cached})',
+            );
+          }
+          return audio.bodyBytes;
+        }
+
+        if (status.status == 'failed' || status.status == 'cancelled') {
+          throw Exception(
+              'fetchTalk job ${status.status}: ${status.error ?? jobId}');
+        }
+
+        await Future.delayed(const Duration(milliseconds: 750));
+      }
     } finally {
+      if (_activeTalkJobId == jobId) _activeTalkJobId = null;
       if (owned) client.close();
+    }
+  }
+
+  Future<TalkJobStatus> _fetchTalkJobStatus(
+      http.Client client, String jobId) async {
+    final response = await client
+        .get(_uri('/talk_jobs/$jobId'))
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      final detail = _extractDetail(response.body);
+      throw Exception(
+          'fetchTalk status failed (${response.statusCode}): $detail');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return TalkJobStatus.fromJson(json);
+  }
+
+  Future<Uint8List> _fetchTalkLegacy(http.Client client, String body) async {
+    final response = await client
+        .post(
+          _uri('/talk'),
+          headers: {'Content-Type': 'application/json'},
+          body: body,
+        )
+        .timeout(const Duration(minutes: 10));
+
+    if (response.statusCode != 200) {
+      final detail = _extractDetail(response.body);
+      throw Exception('fetchTalk failed (${response.statusCode}): $detail');
+    }
+
+    final llmTime = response.headers['x-voidfm-llm-time'];
+    final ttsTime = response.headers['x-voidfm-tts-time'];
+    final totalTime = response.headers['x-voidfm-total-time'];
+    if (totalTime != null) {
+      print(
+          'DjProvider(HostClient): Generation took $totalTime s (LLM: $llmTime s, TTS: $ttsTime s)');
+    }
+
+    return response.bodyBytes;
+  }
+
+  Future<void> cancelActiveTalkJob() async {
+    _cancelRequested = true;
+    final jobId = _activeTalkJobId;
+    if (jobId == null) return;
+
+    final client = http.Client();
+    try {
+      await client
+          .delete(_uri('/talk_jobs/$jobId'))
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {
+      // Best-effort: the local HTTP client may already be closed during cancellation.
+    } finally {
+      client.close();
     }
   }
 
@@ -112,7 +258,8 @@ class HostClient {
           .timeout(const Duration(seconds: 30));
       if (response.statusCode != 200) {
         final detail = _extractDetail(response.body);
-        throw Exception('fetchStationId failed (${response.statusCode}): $detail');
+        throw Exception(
+            'fetchStationId failed (${response.statusCode}): $detail');
       }
       return response.bodyBytes;
     } finally {

@@ -1,5 +1,6 @@
 class DjPreferences {
   final String? llmModel;
+  final String? ttsSpeaker;
   final String talkLength;     // "short" | "medium" | "long"
   final String weatherCity;    // 天気取得用の都市名または "lat,lon" 座標（空文字 = サーバーデフォルト）
   final String personality;    // "standard" | "energetic" | "chill" | "intellectual" | "comedian"
@@ -10,6 +11,7 @@ class DjPreferences {
 
   const DjPreferences({
     this.llmModel,
+    this.ttsSpeaker,
     this.talkLength = 'medium',
     this.weatherCity = '',
     this.personality = 'standard',
@@ -21,6 +23,7 @@ class DjPreferences {
 
   DjPreferences copyWith({
     String? llmModel,
+    String? ttsSpeaker,
     String? talkLength,
     String? weatherCity,
     String? personality,
@@ -31,6 +34,7 @@ class DjPreferences {
   }) =>
       DjPreferences(
         llmModel: llmModel ?? this.llmModel,
+        ttsSpeaker: ttsSpeaker ?? this.ttsSpeaker,
         talkLength: talkLength ?? this.talkLength,
         weatherCity: weatherCity ?? this.weatherCity,
         personality: personality ?? this.personality,
@@ -42,6 +46,7 @@ class DjPreferences {
 
   Map<String, dynamic> toJson() => {
         if (llmModel != null) 'llm_model': llmModel,
+        if (ttsSpeaker != null) 'tts_speaker': ttsSpeaker,
         'talk_length': talkLength,
         if (weatherCity.isNotEmpty) 'weather_city': weatherCity,
         'personality': personality,

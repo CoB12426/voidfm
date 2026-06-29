@@ -105,13 +105,49 @@ class MainActivity : FlutterActivity() {
                     "setDjActive"     -> {
                         val active = call.argument<Boolean>("active") ?: false
                         MyNotificationListener.djActive = active
-                        if (!active) MyNotificationListener.holdPlayback = false
+                        if (!active) {
+                            MyNotificationListener.holdPlayback = false
+                            // DJ OFF 時はバッファ済み通知を解放する
+                            val pending = MyNotificationListener.bufferedTrackChange
+                            MyNotificationListener.preEndPending = false
+                            MyNotificationListener.bufferedTrackChange = null
+                            if (pending != null) {
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    MyNotificationListener.eventSink?.success(pending)
+                                }
+                            }
+                        }
                         result.success(null)
                     }
                     "setDjHoldPlayback" -> {
-                        MyNotificationListener.holdPlayback =
-                            call.argument<Boolean>("hold") ?: false
+                        val hold = call.argument<Boolean>("hold") ?: false
+                        MyNotificationListener.holdPlayback = hold
+                        if (!hold) {
+                            // ホールド解除時、未クリアのバッファがあれば解放する（フォールバック）
+                            val pending = MyNotificationListener.bufferedTrackChange
+                            if (pending != null && MyNotificationListener.preEndPending) {
+                                MyNotificationListener.preEndPending = false
+                                MyNotificationListener.bufferedTrackChange = null
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    MyNotificationListener.eventSink?.success(pending)
+                                }
+                            }
+                        }
                         result.success(null)
+                    }
+                    "clearPreEndPending" -> {
+                        // void talk 完了後に Flutter から呼ぶ。
+                        // バッファ済みのトラック変更通知を解放し、曲が進んだかどうかを返す。
+                        val pending = MyNotificationListener.bufferedTrackChange
+                        val trackAdvanced = pending != null
+                        MyNotificationListener.preEndPending = false
+                        MyNotificationListener.bufferedTrackChange = null
+                        if (pending != null) {
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                MyNotificationListener.eventSink?.success(pending)
+                            }
+                        }
+                        result.success(mapOf("trackAdvanced" to trackAdvanced))
                     }
                     else -> result.notImplemented()
                 }

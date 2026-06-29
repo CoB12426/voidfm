@@ -15,9 +15,11 @@ from routers.health import router as health_router
 from routers.config_router import router as config_router
 from routers.talk import router as talk_router
 from routers.station_id_router import router as station_id_router
+from routers.metrics_router import router as metrics_router
 import services.llm_client as llm_client
 import services.tts_client as tts_client
 import services.station_id as station_id
+import services.talk_jobs as talk_jobs
 
 def _configure_logging() -> None:
     dictConfig(
@@ -67,9 +69,10 @@ async def _warmup(cfg: dict) -> None:
     # LLM warm-up
     try:
         logger.info("[warmup] LLM loading ...")
+        llm_model = await llm_client.resolve_model(cfg)
         await llm_client.generate_text(
-            ollama_url=cfg["llm"]["ollama_url"],
-            model=cfg["llm"]["default_model"],
+            cfg=cfg,
+            model=llm_model,
             prompt="Hi",
         )
         logger.info("[warmup] LLM ready")
@@ -99,9 +102,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         cfg["server"]["host"],
         cfg["server"]["port"],
     )
+    await tts_client.startup(cfg)
+    await talk_jobs.startup(cfg)
     asyncio.create_task(_warmup(cfg))  # バックグラウンドでモデルをプリロード
     yield
     # シャットダウン時にHTTPクライアントをクローズ
+    await talk_jobs.shutdown()
+    await tts_client.shutdown()
     await llm_client.close_http_client()
     logger.info("mydj-host 終了")
 
@@ -112,6 +119,7 @@ app.include_router(health_router)
 app.include_router(config_router)
 app.include_router(talk_router)
 app.include_router(station_id_router)
+app.include_router(metrics_router)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../models/track_info.dart';
 
@@ -11,10 +11,13 @@ import '../models/track_info.dart';
 ///                     MediaController.Callback が onMetadataChanged /
 ///                     onPlaybackStateChanged / onQueueChanged を検知するたびに流れる。
 class NotificationService {
-  static const _trackChannel     = EventChannel('com.example.voidfm/notification');
-  static const _nextTrackChannel = EventChannel('com.example.voidfm/next_track');
-  static const _trackEndingChannel = EventChannel('com.example.voidfm/track_ending');
-  static const _methodChannel    = MethodChannel('com.example.voidfm/media_session');
+  static const _trackChannel = EventChannel('com.example.voidfm/notification');
+  static const _nextTrackChannel =
+      EventChannel('com.example.voidfm/next_track');
+  static const _trackEndingChannel =
+      EventChannel('com.example.voidfm/track_ending');
+  static const _methodChannel =
+      MethodChannel('com.example.voidfm/media_session');
 
   Stream<TrackInfo>? _trackStream;
   Stream<Map<String, dynamic>>? _rawNextTrackStream;
@@ -66,21 +69,38 @@ class NotificationService {
     return _trackEndingStream!;
   }
 
-  Future<void> skipToNext()     async => _methodChannel.invokeMethod<void>('skipToNext');
-  Future<void> skipToPrevious() async => _methodChannel.invokeMethod<void>('skipToPrevious');
+  Future<void> skipToNext() async =>
+      _methodChannel.invokeMethod<void>('skipToNext');
+  Future<void> skipToPrevious() async =>
+      _methodChannel.invokeMethod<void>('skipToPrevious');
+
+  /// void talk 完了後に呼ぶ。Kotlin 側のバッファ済みトラック変更通知を解放する。
+  /// 戻り値: true = void talk 中にトラックが自然進行した（skipToNext 不要）
+  Future<bool> clearPreEndPending() async {
+    try {
+      final result = await _methodChannel
+          .invokeMapMethod<String, dynamic>('clearPreEndPending');
+      return result?['trackAdvanced'] as bool? ?? false;
+    } catch (e) {
+      debugPrint('NotificationService: clearPreEndPending error: $e');
+      return false;
+    }
+  }
 
   /// Android 側の djActive フラグをセットする。
   /// true にすると次のトラック変更時に即座に一時停止が走る。
   Future<void> setDjActive(bool active) async {
     try {
-      await _methodChannel.invokeMethod<void>('setDjActive', {'active': active});
+      await _methodChannel
+          .invokeMethod<void>('setDjActive', {'active': active});
     } catch (_) {}
   }
 
   /// DJ トーク再生中のみ、外部プレイヤーの自動再開を抑止する。
   Future<void> setDjHoldPlayback(bool hold) async {
     try {
-      await _methodChannel.invokeMethod<void>('setDjHoldPlayback', {'hold': hold});
+      await _methodChannel
+          .invokeMethod<void>('setDjHoldPlayback', {'hold': hold});
     } catch (_) {}
   }
 
@@ -114,9 +134,9 @@ class NotificationService {
       albumArt = Uint8List.fromList(artRaw.cast<int>());
     }
     return TrackInfo(
-      title:    map['title']  as String? ?? '',
-      artist:   map['artist'] as String? ?? '',
-      album:    map['album']  as String?,
+      title: map['title'] as String? ?? '',
+      artist: map['artist'] as String? ?? '',
+      album: map['album'] as String?,
       albumArt: albumArt,
     );
   }

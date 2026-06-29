@@ -31,7 +31,7 @@ class MyNotificationListener : NotificationListenerService() {
     companion object {
         private const val TAG = "MyNotifListener"
         private const val USER_SKIP_GUARD_MS = 2500L
-        private const val PRE_END_PAUSE_MS = 500L
+        private const val PRE_END_PAUSE_MS = 3500L
         private const val PRE_END_MONITOR_INTERVAL_MS = 20L
 
         /** 現在トラック用 EventSink（com.example.mydj/notification） */
@@ -60,6 +60,19 @@ class MyNotificationListener : NotificationListenerService() {
         @Volatile
         var holdPlayback: Boolean = false
 
+        /**
+         * true の間は sendIfChanged() がトラック変更通知を Flutter へ送らずバッファリングする。
+         * maybePauseBeforeTrackEnd() で true にセットされ、Flutter が void talk 完了後に
+         * clearPreEndPending MethodChannel を呼ぶことでクリアされる。
+         * これにより「void talk 開始前に次曲通知が届く」競合状態を解消する。
+         */
+        @Volatile
+        var preEndPending: Boolean = false
+
+        /** preEndPending 中にバッファリングされたトラック変更通知 */
+        @Volatile
+        var bufferedTrackChange: Map<String, Any?>? = null
+
         /** 現在アクティブとみなすメディアアプリの package 名 */
         @Volatile
         var activeMediaPackage: String? = null
@@ -81,6 +94,12 @@ class MyNotificationListener : NotificationListenerService() {
         private var lastTitle: String? = null
         private var lastArtist: String? = null
         private var lastHadArt: Boolean = false
+        private var trackEventSequence: Long = 0L
+
+        private fun nextTrackEventId(): Long {
+            trackEventSequence += 1L
+            return trackEventSequence
+        }
 
         /**
          * 音楽以外のメディアアプリ（動画ストリーミング等）を除外するブロックリスト。
@@ -197,17 +216,19 @@ class MyNotificationListener : NotificationListenerService() {
                 if (holdPlayback) return
 
                 val duration = currentDurationMs
-                if (duration <= 0L) return
+                // 30秒未満の短い曲（ジングル等）では終端一時停止（DJトーク介入）を行わない
+                if (duration <= 30000L) return
 
                 val pos = estimatePositionMs(state)
                 val remaining = duration - pos
                 if (remaining > PRE_END_PAUSE_MS) return
 
                 preEndPauseSentForTrack = true
+                preEndPending = true  // Flutter が void talk を完了するまでトラック変更通知をバッファリング
                 holdPlayback = true  // 次曲の自動再生を即時ブロック（Flutter往復不要）
                 controller.transportControls.pause()
-                sendTrackEndingSoon(remaining)
-                Log.d(TAG, "djActive: pre-end pause fired (remaining=${remaining}ms)")
+                sendTrackEndingSoon(remaining, duration, pos, packageName)
+                Log.d(TAG, "djActive: pre-end pause fired (remaining=${remaining}ms, pos=${pos}ms, duration=${duration}ms)")
             }
 
             private fun schedulePreEndMonitorIfNeeded() {
@@ -255,11 +276,18 @@ class MyNotificationListener : NotificationListenerService() {
                 // メタデータ更新は同一曲でも頻繁に発生するため、
                 // 「実際に曲が変わった時」だけ自動一時停止する。
                 val isTrackChanged = (title != lastTitle) || (artist != lastArtist)
+                currentDurationMs = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
+
                 if (isTrackChanged) {
                     preEndPauseSentForTrack = false
+                    // DJモードON時に自然に曲が切り替わった場合、VoidTalkとの音声被りを防ぐため即座に一時停止しブロックする。
+                    // 30秒未満の短い曲の場合は、ギャップレス再生対策による強制一時停止を行わない。
+                    if (djActive && !isUserSkipGuardActive() && !holdPlayback && currentDurationMs > 30000L) {
+                        holdPlayback = true
+                        controller.transportControls.pause()
+                        Log.d(TAG, "djActive: paused immediately on metadata track change (duration=$currentDurationMs)")
+                    }
                 }
-
-                currentDurationMs = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
 
                 if (isTrackChanged && isUserSkipGuardActive()) {
                     Log.d(TAG, "skip guard: suppress auto-pause on metadata change")
@@ -340,9 +368,18 @@ class MyNotificationListener : NotificationListenerService() {
         return base + (delta * speed).toLong()
     }
 
-    private fun sendTrackEndingSoon(remainingMs: Long) {
+    private fun sendTrackEndingSoon(
+        remainingMs: Long,
+        durationMs: Long,
+        positionMs: Long,
+        packageName: String,
+    ) {
         val map = mutableMapOf<String, Any>(
-            "remaining_ms" to remainingMs.coerceAtLeast(0L)
+            "event_id" to nextTrackEventId(),
+            "remaining_ms" to remainingMs.coerceAtLeast(0L),
+            "duration_ms" to durationMs.coerceAtLeast(0L),
+            "position_ms" to positionMs.coerceAtLeast(0L),
+            "package" to packageName,
         )
         mainHandler.post { trackEndingSink?.success(map) }
     }
@@ -381,6 +418,13 @@ class MyNotificationListener : NotificationListenerService() {
             "package" to packageName,
         )
         if (artBytes != null) map["albumArt"] = artBytes
+
+        // void talk 完了前に次曲通知が届く競合を防ぐため、バッファリングする
+        if (preEndPending && djActive) {
+            Log.d(TAG, "preEndPending: buffering track change $artist – $title")
+            bufferedTrackChange = map
+            return
+        }
 
         mainHandler.post { eventSink?.success(map) }
     }

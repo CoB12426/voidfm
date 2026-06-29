@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -61,7 +60,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     _trackEndingSubscription = _notificationService.trackEndingStream.listen(
-      (_) {
+      (event) {
+        debugPrint('Track ending event: $event');
         final settings = context.read<SettingsProvider>();
         final dj = context.read<DjProvider>();
         _eventChain = _eventChain.then((_) {
@@ -106,7 +106,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 // 楽曲情報
                 Positioned(
-                  left: 0, right: 0, bottom: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
                   child: _TrackInfo(dj: dj, settings: settings),
                 ),
               ],
@@ -118,7 +120,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  AppBar _buildAppBar(BuildContext context, SettingsProvider settings, DjProvider dj) {
+  AppBar _buildAppBar(
+      BuildContext context, SettingsProvider settings, DjProvider dj) {
     // サービス ON 中はホスト接続確認の結果を優先表示する
     final connStatus = dj.isServiceEnabled
         ? (dj.hostConnected == true
@@ -136,7 +139,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _ConnectionDot(status: connStatus),
         const SizedBox(width: 4),
         IconButton(
-          icon: const Icon(Icons.settings_outlined, size: 22, color: Colors.white),
+          icon: const Icon(Icons.settings_outlined,
+              size: 22, color: Colors.white),
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const SettingsScreen()),
@@ -146,7 +150,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildFooter(BuildContext context, DjProvider dj, SettingsProvider settings) {
+  Widget _buildFooter(
+      BuildContext context, DjProvider dj, SettingsProvider settings) {
     final isOn = dj.isServiceEnabled;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -162,9 +167,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 height: 8,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: isOn ? const Color(0xFFFF3B30) : const Color(0xFF444444),
+                  color:
+                      isOn ? const Color(0xFFFF3B30) : const Color(0xFF444444),
                   boxShadow: isOn
-                      ? [BoxShadow(color: const Color(0xFFFF3B30).withValues(alpha: 0.7), blurRadius: 10, spreadRadius: 1)]
+                      ? [
+                          BoxShadow(
+                              color: const Color(0xFFFF3B30)
+                                  .withValues(alpha: 0.7),
+                              blurRadius: 10,
+                              spreadRadius: 1)
+                        ]
                       : [],
                 ),
               ),
@@ -174,7 +186,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: GoogleFonts.inter(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                  color: isOn ? const Color(0xFFFF3B30) : const Color(0xFF333333),
+                  color:
+                      isOn ? const Color(0xFFFF3B30) : const Color(0xFF333333),
                   letterSpacing: isOn ? 1.5 : 0,
                 ),
                 child: Text(isOn ? 'ON AIR' : 'OFF'),
@@ -222,8 +235,8 @@ class _SwipeableAlbumArtState extends State<_SwipeableAlbumArt>
       vsync: this,
       duration: const Duration(milliseconds: 280),
     );
-    _slideAnim = Tween<Offset>(begin: Offset.zero, end: Offset.zero)
-        .animate(_slideCtrl);
+    _slideAnim =
+        Tween<Offset>(begin: Offset.zero, end: Offset.zero).animate(_slideCtrl);
   }
 
   @override
@@ -275,8 +288,8 @@ class _SwipeableAlbumArtState extends State<_SwipeableAlbumArt>
       onHorizontalDragEnd: (details) {
         const threshold = 120.0;
         final v = details.primaryVelocity ?? 0;
-        if (v < -threshold) _handleSwipe(true);   // 左スワイプ → 次へ
-        if (v > threshold) _handleSwipe(false);   // 右スワイプ → 前へ
+        if (v < -threshold) _handleSwipe(true); // 左スワイプ → 次へ
+        if (v > threshold) _handleSwipe(false); // 右スワイプ → 前へ
       },
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -369,7 +382,11 @@ class _TrackInfo extends StatelessWidget {
                 fontWeight: FontWeight.w700,
                 color: Colors.white,
                 letterSpacing: -0.5,
-                shadows: [Shadow(color: Colors.black.withValues(alpha: 0.8), blurRadius: 12)],
+                shadows: [
+                  Shadow(
+                      color: Colors.black.withValues(alpha: 0.8),
+                      blurRadius: 12)
+                ],
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -380,13 +397,19 @@ class _TrackInfo extends StatelessWidget {
               style: GoogleFonts.inter(
                 fontSize: 15,
                 color: const Color(0xFFAAAAAA),
-                shadows: [Shadow(color: Colors.black.withValues(alpha: 0.8), blurRadius: 8)],
+                shadows: [
+                  Shadow(
+                      color: Colors.black.withValues(alpha: 0.8), blurRadius: 8)
+                ],
               ),
             ),
           ] else ...[
             Text(
-              settings.isConfigured ? 'Waiting for music...' : 'Configure host to begin',
-              style: GoogleFonts.inter(fontSize: 18, color: const Color(0xFF444444)),
+              settings.isConfigured
+                  ? 'Waiting for music...'
+                  : 'Configure host to begin',
+              style: GoogleFonts.inter(
+                  fontSize: 18, color: const Color(0xFF444444)),
             ),
             if (!settings.isConfigured) ...[
               const SizedBox(height: 16),
@@ -404,12 +427,15 @@ class _TrackInfo extends StatelessWidget {
             Row(
               children: [
                 const SizedBox(
-                  width: 12, height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF888888)),
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 1.5, color: Color(0xFF888888)),
                 ),
                 const SizedBox(width: 10),
                 Text('Generating DJ talk...',
-                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF666666))),
+                    style: GoogleFonts.inter(
+                        fontSize: 12, color: const Color(0xFF666666))),
               ],
             ),
           ],
@@ -425,7 +451,8 @@ class _TrackInfo extends StatelessWidget {
                 border: Border.all(color: const Color(0xFF3A1A1A)),
               ),
               child: Text(dj.lastTalkError!,
-                  style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFFCC4444))),
+                  style: GoogleFonts.inter(
+                      fontSize: 11, color: const Color(0xFFCC4444))),
             ),
           ],
         ],
@@ -447,7 +474,8 @@ class _ConnectionDot extends StatelessWidget {
       ConnectionStatus.unconfigured => const Color(0xFF444444),
     };
     return Container(
-      width: 6, height: 6,
+      width: 6,
+      height: 6,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }

@@ -1,18 +1,20 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/dj_preferences.dart';
+import '../models/host_config.dart';
 
 enum ConnectionStatus { unconfigured, connected, error }
 
 class SettingsProvider extends ChangeNotifier {
-  static const _keyHostAddress   = 'host_address';
-  static const _keyPort          = 'port';
-  static const _keyLlmModel     = 'llm_model';
-  static const _keyTalkLength   = 'talk_length';
-  static const _keyWeatherCity  = 'weather_city';
-  static const _keyPersonality  = 'personality';
-  static const _keyUsername     = 'username';
-  static const _keyDjName       = 'dj_name';
+  static const _keyHostAddress = 'host_address';
+  static const _keyPort = 'port';
+  static const _keyLlmModel = 'llm_model';
+  static const _keyTtsSpeaker = 'tts_speaker';
+  static const _keyTalkLength = 'talk_length';
+  static const _keyWeatherCity = 'weather_city';
+  static const _keyPersonality = 'personality';
+  static const _keyUsername = 'username';
+  static const _keyDjName = 'dj_name';
   static const _keyCustomPrompt = 'custom_prompt';
   static const _keyTalkFrequency = 'talk_frequency';
 
@@ -33,14 +35,15 @@ class SettingsProvider extends ChangeNotifier {
     _hostAddress = prefs.getString(_keyHostAddress) ?? '';
     _port = prefs.getInt(_keyPort) ?? 8000;
     _djPreferences = DjPreferences(
-      llmModel:     prefs.getString(_keyLlmModel),
-      talkLength:   prefs.getString(_keyTalkLength)    ?? 'medium',
-      weatherCity:  prefs.getString(_keyWeatherCity)   ?? '',
-      personality:  prefs.getString(_keyPersonality)   ?? 'standard',
-      username:     prefs.getString(_keyUsername)      ?? '',
-      djName:       prefs.getString(_keyDjName)        ?? '',
-      customPrompt: prefs.getString(_keyCustomPrompt)  ?? '',
-      talkFrequency: prefs.getInt(_keyTalkFrequency)   ?? 1,
+      llmModel: prefs.getString(_keyLlmModel),
+      ttsSpeaker: prefs.getString(_keyTtsSpeaker),
+      talkLength: prefs.getString(_keyTalkLength) ?? 'medium',
+      weatherCity: prefs.getString(_keyWeatherCity) ?? '',
+      personality: prefs.getString(_keyPersonality) ?? 'standard',
+      username: prefs.getString(_keyUsername) ?? '',
+      djName: prefs.getString(_keyDjName) ?? '',
+      customPrompt: prefs.getString(_keyCustomPrompt) ?? '',
+      talkFrequency: prefs.getInt(_keyTalkFrequency) ?? 1,
     );
     _connectionStatus = ConnectionStatus.unconfigured;
     notifyListeners();
@@ -58,15 +61,49 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> saveDjPreferences(DjPreferences prefs) async {
     _djPreferences = prefs;
     final sp = await SharedPreferences.getInstance();
-    if (prefs.llmModel != null) await sp.setString(_keyLlmModel, prefs.llmModel!);
-    await sp.setString(_keyTalkLength,    prefs.talkLength);
-    await sp.setString(_keyWeatherCity,   prefs.weatherCity);
-    await sp.setString(_keyPersonality,   prefs.personality);
-    await sp.setString(_keyUsername,      prefs.username);
-    await sp.setString(_keyDjName,        prefs.djName);
-    await sp.setString(_keyCustomPrompt,  prefs.customPrompt);
-    await sp.setInt(_keyTalkFrequency,    prefs.talkFrequency);
+    if (prefs.llmModel != null) {
+      await sp.setString(_keyLlmModel, prefs.llmModel!);
+    } else {
+      await sp.remove(_keyLlmModel);
+    }
+    if (prefs.ttsSpeaker != null) {
+      await sp.setString(_keyTtsSpeaker, prefs.ttsSpeaker!);
+    } else {
+      await sp.remove(_keyTtsSpeaker);
+    }
+    await sp.setString(_keyTalkLength, prefs.talkLength);
+    await sp.setString(_keyWeatherCity, prefs.weatherCity);
+    await sp.setString(_keyPersonality, prefs.personality);
+    await sp.setString(_keyUsername, prefs.username);
+    await sp.setString(_keyDjName, prefs.djName);
+    await sp.setString(_keyCustomPrompt, prefs.customPrompt);
+    await sp.setInt(_keyTalkFrequency, prefs.talkFrequency);
     notifyListeners();
+  }
+
+  Future<bool> repairWithHostConfig(HostConfig config) async {
+    var repaired = _djPreferences;
+    var changed = false;
+
+    if (config.llmModels.isNotEmpty &&
+        (repaired.llmModel == null ||
+            !config.llmModels.contains(repaired.llmModel))) {
+      repaired = repaired.copyWith(llmModel: config.defaultLlm);
+      changed = true;
+    }
+
+    if (config.ttsSpeakers.isNotEmpty &&
+        (repaired.ttsSpeaker == null ||
+            !config.ttsSpeakers.contains(repaired.ttsSpeaker))) {
+      repaired = repaired.copyWith(ttsSpeaker: config.defaultSpeaker);
+      changed = true;
+    }
+
+    if (!changed) return false;
+    await saveDjPreferences(repaired);
+    debugPrint(
+        'SettingsProvider: repaired host-bound preferences from /config');
+    return true;
   }
 
   void setConnectionStatus(ConnectionStatus status) {

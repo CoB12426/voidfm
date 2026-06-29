@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, field_validator
 
 
@@ -19,6 +19,7 @@ class TrackInfo(BaseModel):
 
 class DjPreferences(BaseModel):
     llm_model: Optional[str] = None
+    tts_speaker: Optional[str] = None    # 話者（任意）
     talk_length: Optional[str] = None    # "short" | "medium" | "long"
     weather_city: Optional[str] = None   # city name or "lat,lon"; overrides config.toml
     personality: Optional[str] = None    # "standard" | "energetic" | "chill" | "intellectual" | "comedian"
@@ -46,3 +47,32 @@ class ConfigResponse(BaseModel):
     tts_speakers: list[str]
     default_speaker: str
     server_version: str
+
+
+class TalkJobCreateResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class TalkJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    created_at: float
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
+    cancelled_at: Optional[float] = None
+    queue_position: int = 0
+    error: Optional[str] = None
+    content_type: Optional[str] = None
+    audio_bytes: Optional[int] = None
+    llm_time: Optional[float] = None
+    tts_time: Optional[float] = None
+    total_time: Optional[float] = None
+    cached: bool = False
+    preview: Optional[str] = None
+
+
+class MetricsResponse(BaseModel):
+    counters: dict[str, int]
+    recent_jobs: list[TalkJobStatusResponse]
+    recent_events: list[dict[str, Any]]

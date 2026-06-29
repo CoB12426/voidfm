@@ -15,27 +15,52 @@ router = APIRouter()
 async def get_server_config() -> ConfigResponse:
     logger.info("Config request received")
     cfg = get_config()
-    default_model: str = cfg["llm"]["default_model"]
-    ollama_url: str = cfg["llm"]["ollama_url"]
+    configured_default_model: str = cfg["llm"].get("default_model", "auto")
     # subprocess モードでは default_speaker は不要
     default_speaker: str = cfg["tts"].get("default_speaker", "default")
 
+    tts_mode = cfg["tts"].get("mode", "http")
+    tts_speakers = ["default"]
+
+    if tts_mode in ("subprocess", "s2_server"):
+        # s2.cpp モードの場合、[tts.voices] セクションから取得する
+        voices = cfg.get("tts", {}).get("voices", {})
+        tts_speakers = ["default"] + list(voices.keys())
+        tts_speakers = list(dict.fromkeys(tts_speakers))
+    else:
+        # httpモードの場合は現状defaultのみ（本来はAPI経由で取得可）
+        tts_speakers = ["default", default_speaker]
+        tts_speakers = list(dict.fromkeys(tts_speakers))  # 重複排除
+
     try:
-        logger.debug("Fetching available models from Ollama: %s", ollama_url)
-        models = await llm_client.list_models(ollama_url)
+        logger.debug("Fetching available models from LLM provider")
+        models = await llm_client.list_models(cfg)
         if not models:
-            logger.warning("No models returned from Ollama, using default")
-            models = [default_model]
+            logger.warning("No models returned from LLM provider, using default")
+            models = [configured_default_model]
         logger.info("Available models: %s", models)
     except Exception as exc:
-        logger.warning("Failed to connect to Ollama (%s). Using default model only.", exc)
-        models = [default_model]
+        logger.warning("Failed to fetch LLM models (%s). Using default model only.", exc)
+        models = [configured_default_model]
+
+    try:
+        default_model = await llm_client.resolve_model(cfg)
+    except Exception as exc:
+        logger.warning("Failed to resolve default LLM model (%s). Using configured default.", exc)
+        default_model = configured_default_model
+
+    if default_model not in models:
+        models = [default_model] + [m for m in models if m != default_model]
+
+    response_default_speaker = default_speaker
+    if response_default_speaker not in tts_speakers:
+        response_default_speaker = tts_speakers[0] if tts_speakers else "default"
 
     response = ConfigResponse(
         llm_models=models,
         default_llm=default_model,
-        tts_speakers=[default_speaker],
-        default_speaker=default_speaker,
+        tts_speakers=tts_speakers,
+        default_speaker=response_default_speaker,
         server_version="1.0",
     )
     logger.debug("Config response: %s", response)

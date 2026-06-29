@@ -8,10 +8,26 @@ LOG_DIR="$ROOT_DIR/.logs"
 PID_FILE="$LOG_DIR/mydj-host.pid"
 VENV_PY="$ROOT_DIR/voidfm/bin/python"
 
-MODE="full"
-if [[ "${1:-}" == "--host-only" ]]; then
-  MODE="host-only"
-fi
+MODE="host-only"
+case "${1:-}" in
+  ""|--host-only)
+    MODE="host-only"
+    ;;
+  --client|--with-client|--full)
+    MODE="full"
+    ;;
+  -h|--help)
+    echo "Usage: $0 [--host-only|--client]"
+    echo "  --host-only  Start only mydj-host (default)"
+    echo "  --client     Start mydj-host, then run the Flutter app"
+    exit 0
+    ;;
+  *)
+    echo "[ERROR] Unknown option: $1"
+    echo "Usage: $0 [--host-only|--client]"
+    exit 1
+    ;;
+esac
 
 mkdir -p "$LOG_DIR"
 
@@ -44,15 +60,35 @@ else:
     import tomli as tomllib
 
 cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+llm_provider = str(cfg.get("llm", {}).get("provider", "ollama")).lower().replace("-", "_")
+if llm_provider == "openai":
+    llm_provider = "openai_compatible"
+if llm_provider not in ("ollama", "openai_compatible"):
+    print(f"[ERROR] Unsupported llm.provider: {llm_provider!r}")
+    raise SystemExit(1)
+if llm_provider == "ollama" and not cfg.get("llm", {}).get("ollama_url"):
+    print("[ERROR] Missing [llm].ollama_url for provider=ollama")
+    raise SystemExit(1)
+if llm_provider == "openai_compatible" and not cfg.get("llm", {}).get("base_url"):
+    print("[ERROR] Missing [llm].base_url for provider=openai_compatible")
+    raise SystemExit(1)
+
 mode = cfg.get("tts", {}).get("mode", "http")
-if mode == "subprocess":
+if mode not in ("http", "subprocess", "s2_server"):
+    print(f"[ERROR] Unsupported tts.mode: {mode!r}")
+    raise SystemExit(1)
+if mode in ("subprocess", "s2_server"):
     missing = []
+    cfg_dir = cfg_path.parent
     for key in ("s2_binary", "s2_model", "s2_tokenizer"):
         p = cfg.get("tts", {}).get(key)
-        if not p or not Path(p).exists():
+        resolved = Path(p) if p else None
+        if resolved and not resolved.is_absolute():
+            resolved = cfg_dir / resolved
+        if not p or not resolved.exists():
             missing.append((key, p))
     if missing:
-        print("[ERROR] Missing TTS resources in subprocess mode:")
+        print(f"[ERROR] Missing TTS resources in {mode} mode:")
         for k, p in missing:
             print(f"  - {k}: {p}")
         print("Please download/place files and update mydj-host/config.toml")

@@ -8,6 +8,7 @@ from typing import Optional
 import httpx
 
 from models.schemas import TrackInfo
+import services.program_memory as program_memory
 
 logger = logging.getLogger(__name__)
 
@@ -31,27 +32,27 @@ _LENGTH_INSTRUCTIONS: dict[str, str] = {
 
 _PERSONALITIES: dict[str, dict] = {
     "standard": {
-        "persona": "a professional radio DJ",
-        "style": "Speak in a calm, warm, professional radio voice. Clear, inviting, and polished.",
-        "joke_rate": 0.20,
+        "persona": "a charismatic late-night radio DJ",
+        "style": "Warm and believable, with the loose spontaneity of a real live radio host. Let tiny jokes and odd observations breathe.",
+        "joke_rate": 0.45,
         "emotions": "(excited)\n  (laugh)",
     },
     "energetic": {
         "persona": "a high-energy club DJ",
-        "style": "Maximum energy! Short, punchy bursts. Hype the crowd like you're on a festival stage.",
-        "joke_rate": 0.15,
+        "style": "Fast, punchy, and playful. Hype the room, but also toss in ridiculous little live-radio asides.",
+        "joke_rate": 0.35,
         "emotions": "(excited)",
     },
     "chill": {
         "persona": "a mellow late-night radio host",
-        "style": "Soft, unhurried, like a late-night chat with a friend. No rush, just good vibes.",
-        "joke_rate": 0.30,
+        "style": "Soft, unhurried, like a late-night chat with a friend. Use dry humor and odd little thoughts.",
+        "joke_rate": 0.40,
         "emotions": "(sigh)\n  (laugh)",
     },
     "intellectual": {
         "persona": "a knowledgeable music critic and radio host",
-        "style": "Thoughtful and articulate — weave in music history, cultural context, and subtle trivia.",
-        "joke_rate": 0.10,
+        "style": "Thoughtful and articulate, but not trapped in music trivia. Make culture, daily life, and tiny absurdities sound interesting.",
+        "joke_rate": 0.25,
         "emotions": "(sigh)",
     },
     "comedian": {
@@ -89,11 +90,76 @@ def _emotion_guide(personality_cfg: dict) -> str:
 def _joke_hint(personality_cfg: dict) -> str:
     if random.random() < personality_cfg["joke_rate"]:
         return random.choice([
-            "Include a quick joke or clever pun related to the song.",
-            "Add a funny or surprising fun fact to make the listener smile.",
-            "Slip in a witty aside or playful remark.",
+            "Include a quick off-topic joke or dry one-liner.",
+            "Add a funny fake observation about daily life, radio, technology, food, traffic, or tiny inconveniences.",
+            "Slip in a witty aside that sounds improvised, not written.",
         ])
     return ""
+
+
+# ---------------------------------------------------------------------------
+# 雑談・番組ビット
+# ---------------------------------------------------------------------------
+
+_AIRBREAK_BITS: tuple[tuple[int, str, str], ...] = (
+    (
+        18,
+        "offbeat observation",
+        "Open with a small, funny observation about ordinary life. It does not need to connect to the songs.",
+    ),
+    (
+        14,
+        "micro-rant",
+        "Do a harmless tiny rant about something trivial, like cables, parking lots, app updates, vending machines, or office lighting.",
+    ),
+    (
+        13,
+        "fictional listener message",
+        "Pretend a listener sent a strange but believable message. Keep it brief and clearly playful.",
+    ),
+    (
+        13,
+        "fake station business",
+        "Invent a quick VoidFM station announcement, fake sponsor tease, or studio mishap. Make it satirical and obviously fictional.",
+    ),
+    (
+        12,
+        "absurd local bulletin",
+        "Give a tiny fictional local bulletin or public-service aside, then move on like it was normal.",
+    ),
+    (
+        10,
+        "personal anecdote",
+        "Share a one-sentence DJ anecdote or confession that feels human and a little funny.",
+    ),
+    (
+        9,
+        "music bridge",
+        "Make a natural bridge from the previous track to the next, but avoid sounding like a review.",
+    ),
+    (
+        6,
+        "listener interaction",
+        "Talk directly to the listener with a playful question or challenge, without requiring an answer.",
+    ),
+    (
+        5,
+        "local color",
+        "You may use the time or weather as local color, but avoid saying it is a perfect time or perfect weather for music.",
+    ),
+)
+
+
+def _pick_airbreak_bit() -> tuple[str, str]:
+    total = sum(weight for weight, _, _ in _AIRBREAK_BITS)
+    roll = random.randint(1, total)
+    upto = 0
+    for weight, name, instruction in _AIRBREAK_BITS:
+        upto += weight
+        if roll <= upto:
+            return name, instruction
+    _, name, instruction = _AIRBREAK_BITS[0]
+    return name, instruction
 
 
 # ---------------------------------------------------------------------------
@@ -144,10 +210,10 @@ async def _get_context(cfg: dict) -> str:
             except Exception as e:
                 logger.debug("Weather fetch failed: %s", e)
 
-    # ランダムに含める要素を決定
-    include_exact_time = random.random() < 0.65
-    include_date       = random.random() < 0.40
-    include_weather    = bool(weather_str) and random.random() < 0.65
+    # 天気・時刻は偏りやすいため、素材として控えめに渡す
+    include_exact_time = random.random() < 0.20
+    include_date       = random.random() < 0.10
+    include_weather    = bool(weather_str) and random.random() < 0.15
 
     parts = [time_label]
     if include_exact_time:
@@ -157,7 +223,7 @@ async def _get_context(cfg: dict) -> str:
     if include_weather:
         parts.append(f"weather: {weather_str}")
 
-    return f"[Context: {', '.join(parts)}]"
+    return f"[Optional live context, use rarely: {', '.join(parts)}]"
 
 
 # ---------------------------------------------------------------------------
@@ -236,11 +302,13 @@ def _build(
     custom_line = f"\n[Custom instructions: {custom_prompt.strip()}]" if custom_prompt and custom_prompt.strip() else ""
 
     if is_mid_song:
+        bit_name, bit_instruction = _pick_airbreak_bit()
         return (
             f"{context}\n\n"
             f"You are {persona}. {style}\n"
             f"{name_line}{username_line}"
-            "Give a short, natural mid-song comment about the track currently playing. "
+            "Give a short, natural mid-song radio comment. It may be off-topic. "
+            f"Today's bit type: {bit_name}. {bit_instruction} "
             "Always complete your sentences fully. "
             "Output only the talk itself, no preamble.\n\n"
             f"Now playing: \"{next_track.title}\" by {next_track.artist}\n\n"
@@ -266,51 +334,63 @@ def _build(
     else:
         next_line = f"■ Next track (about to play): \"{next_track.title}\" by {next_track.artist}\n"
 
+    bit_name, bit_instruction = _pick_airbreak_bit()
+
     if previous_track and not same_track:
         structure = (
-            "Structure your talk naturally around these elements (all in one flowing piece):\n"
-            "1. Briefly mention the previous track in a natural way (no closing phrase)\n"
-            "2. A casual chat, a joke, OR a comment tied to the time/date/weather (no need to mention them every time)\n"
-            "3. Introduce the next track (\"Coming up next is [song]...\")"
+            "Structure the airbreak as one flowing live-radio moment:\n"
+            "1. Start with the selected off-topic bit or joke. This should be the main flavor.\n"
+            "2. Mention the previous track only if it helps the flow; otherwise skip it.\n"
+            "3. Land the plane by introducing the next track naturally."
         )
     elif previous_track and same_track:
         structure = (
-            "Structure your talk naturally around these elements (all in one flowing piece):\n"
-            "1. Briefly mention the previous track in a natural way (no closing phrase)\n"
-            "2. A casual chat, a joke, OR a comment tied to the time/date/weather (no need to mention them every time)\n"
-            "3. Tease that another track is coming next, without naming a song title"
+            "Structure the airbreak as one flowing live-radio moment:\n"
+            "1. Start with the selected off-topic bit or joke. This should be the main flavor.\n"
+            "2. Avoid naming the same song twice.\n"
+            "3. Tease that another track is coming next, without naming a song title."
         )
     else:
         structure = (
-            "Structure your talk around:\n"
-            "1. Introducing the next track\n"
-            "2. A casual chat, a joke, OR a comment about the time/date/weather (no need to mention them every time)"
+            "Structure the airbreak as one flowing live-radio moment:\n"
+            "1. Start with the selected off-topic bit or joke. This should be the main flavor.\n"
+            "2. Introduce the next track naturally near the end."
         )
 
     joke = _joke_hint(pcfg)
     joke_line = f"\n[Extra instruction: {joke}]" if joke else ""
 
+    guidelines = (
+        "## ROLE & TASK\n"
+        f"You are {persona}. {style}\n"
+        "The music is currently paused. Deliver a smooth, engaging between-song radio airbreak in English.\n"
+        "Think of a satirical open-world game radio station: alive, funny, slightly weird, and not always about music.\n\n"
+        "## CRITICAL RULES\n"
+        "- Station Name: The station is 'VoidFM'. Never invent or use another station name.\n"
+        "- Endless Stream: This is a continuous 24/7 radio program. Never use sign-offs, goodbyes, 'wrap up', or suggest the show is ending.\n"
+        "- Immersion: The listener is already tuned in. Do NOT say 'Welcome to VoidFM' or use generic greetings like 'Hey there' or 'Hi everyone'. Dive straight into the talk.\n"
+        "- Identity: Do NOT introduce yourself ('This is [DJ name]') unless it feels exceptionally natural in the moment.\n"
+        "- Off-topic is good: You may talk about fictional station life, fake listener messages, tiny complaints, food, traffic, gadgets, urban myths, or absurd local news.\n"
+        "- Music is not the whole point: Do not make every talk a song review. The next-track intro can be just the final sentence.\n"
+        "- Time/weather restraint: Usually do NOT mention the time, date, or weather. Never default to 'perfect weather/time for music'. Use it only when the selected bit asks for local color.\n"
+        "- Continuity: Speak only about the current moment context. Do not mention yesterday or tomorrow.\n"
+        "- Safety: Keep jokes playful, fictional, and non-hateful. No slurs, explicit sexual content, real-person defamation, or instructions for wrongdoing.\n"
+        "- Professionalism: Always complete your sentences fully. Never cut off mid-thought.\n\n"
+        "## OUTPUT FORMAT\n"
+        "Output ONLY the spoken words for the text-to-speech engine. No quotes, no preamble, no meta-text."
+    )
+    memory = program_memory.prompt_guidance()
+
     return (
         f"{context}\n\n"
-        f"You are {persona}. {style}\n"
+        f"{guidelines}\n\n"
+        f"{memory}\n"
         f"{name_line}{username_line}"
-        "The music is paused. Deliver a between-song DJ talk in English. "
-        "This radio station is called VoidFM — do not invent or use any other station name. "
-        "This is a continuous endless radio program, so do NOT use sign-off/ending phrasing "
-        "such as 'wrap up', 'that wraps', 'signing off', 'goodbye', or 'until next time'. "
-        "Do not say anything about yesterday or tomorrow — only the current day."
-        "Do not use any phrases that suggest the show has ended or is about to end."
-        "Do not say 'welcome to VoidFM' or similar — the listener is already tuned in. "
-        "Do not mention the weather, time, or date in every talk — only when it fits naturally. "
-        "Do not say 'This is [DJ name] on VoidFM' or similar — just speak as the DJ without self-introductions. "
-        "Do not call usernames or DJ names in every talk."
-        "Do not mention the track history unless you can tie it into a natural comment. "
-        "Do not starts sentences with 'Hey there' or 'Hi everyone' or similar — just jump into the talk. "
-        "Always complete your sentences fully — never cut off mid-thought. "
-        "Output only the talk itself, no preamble.\n\n"
         f"{history_line}"
         f"{prev_line}"
         f"{next_line}"
+        f"\n## SELECTED AIRBREAK BIT\n"
+        f"{bit_name}: {bit_instruction}\n"
         f"\n{structure}"
         f"{joke_line}\n\n"
         f"{emo}\n\n"
