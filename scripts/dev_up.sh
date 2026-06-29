@@ -48,7 +48,7 @@ if [[ ! -f "$HOST_DIR/requirements.txt" ]]; then
   exit 1
 fi
 
-# Validate model-related paths from config.toml when mode=subprocess
+# Validate config.toml
 "$VENV_PY" - <<'PY' "$HOST_DIR/config.toml"
 import sys
 from pathlib import Path
@@ -72,27 +72,6 @@ if llm_provider == "ollama" and not cfg.get("llm", {}).get("ollama_url"):
 if llm_provider == "openai_compatible" and not cfg.get("llm", {}).get("base_url"):
     print("[ERROR] Missing [llm].base_url for provider=openai_compatible")
     raise SystemExit(1)
-
-mode = cfg.get("tts", {}).get("mode", "http")
-if mode not in ("http", "subprocess", "s2_server"):
-    print(f"[ERROR] Unsupported tts.mode: {mode!r}")
-    raise SystemExit(1)
-if mode in ("subprocess", "s2_server"):
-    missing = []
-    cfg_dir = cfg_path.parent
-    for key in ("s2_binary", "s2_model", "s2_tokenizer"):
-        p = cfg.get("tts", {}).get(key)
-        resolved = Path(p) if p else None
-        if resolved and not resolved.is_absolute():
-            resolved = cfg_dir / resolved
-        if not p or not resolved.exists():
-            missing.append((key, p))
-    if missing:
-        print(f"[ERROR] Missing TTS resources in {mode} mode:")
-        for k, p in missing:
-            print(f"  - {k}: {p}")
-        print("Please download/place files and update mydj-host/config.toml")
-        raise SystemExit(1)
 print("[OK] config.toml validation passed")
 PY
 

@@ -248,6 +248,27 @@ class HostClient {
     }
   }
 
+  /// POST /voice_preview — 話者サンプル音声を取得。
+  Future<Uint8List> fetchVoicePreview(String speaker) async {
+    final client = http.Client();
+    try {
+      final response = await client
+          .post(
+            _uri('/voice_preview'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'speaker': speaker}),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200) {
+        final detail = _extractDetail(response.body);
+        throw Exception('fetchVoicePreview failed (${response.statusCode}): $detail');
+      }
+      return response.bodyBytes;
+    } finally {
+      client.close();
+    }
+  }
+
   /// GET /station_id — ステーションIDの音声を取得。
   Future<Uint8List> fetchStationId() async {
     final client = _client ?? http.Client();

@@ -104,6 +104,7 @@ async def generate_talk(
     username = prefs.username if prefs and prefs.username else None
     dj_name = prefs.dj_name if prefs and prefs.dj_name else None
     custom_prompt = prefs.custom_prompt if prefs and prefs.custom_prompt else None
+    language = prefs.language if prefs and prefs.language else None
 
     if talk_length not in ("short", "medium", "long"):
         talk_length = cfg["dj"]["default_talk_length"]
@@ -136,6 +137,7 @@ async def generate_talk(
             dj_name=dj_name,
             custom_prompt=custom_prompt,
             track_history=body.track_history,
+            language=language,
         )
     except Exception as exc:
         logger.exception("[%s] ✗ prompt build failed", req_id)

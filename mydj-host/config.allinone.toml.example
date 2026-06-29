@@ -7,12 +7,9 @@ host = "0.0.0.0"
 provider = "openai_compatible"
 base_url = "https://api.openai.com/v1"
 api_key = "env:OPENAI_API_KEY"
-# "auto" follows the first model reported by /v1/models, useful for llama.cpp.
-# Set a concrete name such as "gpt-4o-mini" if your provider requires it.
 default_model = "auto"
 temperature = 0.7
 max_tokens = 220
-# llama.cpp thinking models: ask the chat template to emit final text in content.
 # chat_template_kwargs = { enable_thinking = false }
 
 # all-in-one compose で Ollama を使う場合:
@@ -22,15 +19,12 @@ max_tokens = 220
 # keep_alive = "10m"
 
 [tts]
-mode = "s2_server"
-s2_binary    = "/models/s2"
-s2_model     = "/models/s2-pro-q4_k_m.gguf"
-s2_tokenizer = "/models/tokenizer.json"
-s2_server_host = "127.0.0.1"
-s2_server_port = 3030
+chatterbox_model = "multilingual"
+language_id = "en"
 cuda_device = 0
-# s2.cpp server returns WAV.
 audio_format = "wav"
+exaggeration = 0.5
+cfg_weight = 0.5
 
 [dj]
 default_language = "en"

@@ -16,21 +16,11 @@ async def get_server_config() -> ConfigResponse:
     logger.info("Config request received")
     cfg = get_config()
     configured_default_model: str = cfg["llm"].get("default_model", "auto")
-    # subprocess モードでは default_speaker は不要
     default_speaker: str = cfg["tts"].get("default_speaker", "default")
 
-    tts_mode = cfg["tts"].get("mode", "http")
-    tts_speakers = ["default"]
-
-    if tts_mode in ("subprocess", "s2_server"):
-        # s2.cpp モードの場合、[tts.voices] セクションから取得する
-        voices = cfg.get("tts", {}).get("voices", {})
-        tts_speakers = ["default"] + list(voices.keys())
-        tts_speakers = list(dict.fromkeys(tts_speakers))
-    else:
-        # httpモードの場合は現状defaultのみ（本来はAPI経由で取得可）
-        tts_speakers = ["default", default_speaker]
-        tts_speakers = list(dict.fromkeys(tts_speakers))  # 重複排除
+    voices = cfg.get("tts", {}).get("voices", {})
+    tts_speakers = ["default"] + list(voices.keys())
+    tts_speakers = list(dict.fromkeys(tts_speakers))
 
     try:
         logger.debug("Fetching available models from LLM provider")

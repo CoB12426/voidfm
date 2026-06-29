@@ -2,24 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import heapq
-import json
+import io
 import logging
-import os
-import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
-import httpx
-import services.llm_client as llm_client
-
 logger = logging.getLogger(__name__)
 
 _TIMEOUT_TTS = 180.0
-_S2_SERVER_START_TIMEOUT = 120.0
 
-# s2.cpp を同時に複数起動すると VRAM が枯渇してクラッシュするため直列化する
+
 class _PriorityGate:
+    """同時TTS推論を直列化し、VRAMの枯渇を防ぐ。"""
+
     def __init__(self, capacity: int) -> None:
         self._capacity = capacity
         self._active = 0
@@ -76,43 +72,33 @@ async def _tts_slot(priority: str | int = "normal") -> AsyncIterator[None]:
     finally:
         await _tts_gate.release()
 
-_s2_server_process: asyncio.subprocess.Process | None = None
-_s2_server_log_tasks: list[asyncio.Task[None]] = []
-_owns_s2_server = False
+
+_chatterbox_model: object | None = None
 
 
 async def startup(cfg: dict) -> None:
-    """Start long-lived TTS resources owned by the host process."""
-    mode = cfg["tts"].get("mode", "http")
-    if mode == "s2_server":
-        await _ensure_s2_server(cfg)
+    """プロセス起動時にTTSリソースを初期化する。"""
+    _warn_if_no_voice_reference(cfg)
+    await _load_chatterbox_model(cfg)
+
+
+def _warn_if_no_voice_reference(cfg: dict) -> None:
+    tts = cfg["tts"]
+    has_default_ref = bool(tts.get("default_ref_audio"))
+    has_named_voices = bool(tts.get("voices"))
+    if not has_default_ref and not has_named_voices:
+        logger.warning(
+            "[tts] 参照音声が設定されていません。"
+            "毎回ランダムな声が生成されるため、トーク間で声が変わる可能性があります。"
+            "config.toml で [tts].default_ref_audio を設定するか、"
+            "[tts.voices] に名前付き音声を登録してください。"
+        )
 
 
 async def shutdown() -> None:
-    """Stop long-lived TTS resources owned by the host process."""
-    global _s2_server_process, _owns_s2_server
-
-    for task in _s2_server_log_tasks:
-        task.cancel()
-    _s2_server_log_tasks.clear()
-
-    if _s2_server_process is None or not _owns_s2_server:
-        _s2_server_process = None
-        _owns_s2_server = False
-        return
-
-    if _s2_server_process.returncode is None:
-        logger.info("[tts] stopping s2.cpp server (pid=%s)", _s2_server_process.pid)
-        _s2_server_process.terminate()
-        try:
-            await asyncio.wait_for(_s2_server_process.wait(), timeout=10.0)
-        except asyncio.TimeoutError:
-            logger.warning("[tts] s2.cpp server did not stop, killing it")
-            _s2_server_process.kill()
-            await _s2_server_process.wait()
-
-    _s2_server_process = None
-    _owns_s2_server = False
+    """プロセス終了時にTTSリソースを解放する。"""
+    global _chatterbox_model
+    _chatterbox_model = None
 
 
 async def synthesize_speech(
@@ -121,350 +107,103 @@ async def synthesize_speech(
     speaker_override: str | None = None,
     priority: str | int = "normal",
 ) -> bytes:
-    mode = cfg["tts"].get("mode", "http")
-    if mode == "s2_server":
-        return await _synthesize_s2_server(cfg, text, speaker_override, priority)
-    if mode == "subprocess":
-        return await _synthesize_subprocess(cfg, text, speaker_override, priority)
-    return await _synthesize_http(cfg, text, speaker_override)
+    return await _synthesize_chatterbox(cfg, text, speaker_override, priority)
 
 
 # ---------------------------------------------------------------------------
-# HTTP モード（fish-speech API サーバー）
+# Chatterbox TTS（インプロセス推論）
 # ---------------------------------------------------------------------------
 
-async def _synthesize_http(cfg: dict, text: str, speaker_override: str | None = None) -> bytes:
-    fish_speech_url: str = cfg["tts"]["fish_speech_url"]
-    speaker: str = speaker_override if speaker_override else cfg["tts"].get("default_speaker", "default")
-    audio_format: str = cfg["tts"].get("audio_format", "mp3")
-
-    url = f"{fish_speech_url.rstrip('/')}/v1/tts"
-    payload: dict = {
-        "text": text,
-        "format": audio_format,
-        "streaming": False,
-    }
-    if speaker and speaker != "default":
-        payload["reference_id"] = speaker
-
-    logger.debug("TTS HTTP: speaker=%s, format=%s, text_length=%d", speaker, audio_format, len(text))
-
-    client = llm_client._get_http_client()
-    for attempt in range(2):
-        try:
-            response = await client.post(url, json=payload, timeout=_TIMEOUT_TTS)
-            response.raise_for_status()
-            break
-        except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
-            if attempt == 0:
-                logger.warning("TTS HTTP request failed (attempt 1/2): %s. Retrying...", e)
-                await asyncio.sleep(1.0)
-            else:
-                logger.error("TTS HTTP request failed (attempt 2/2)")
-                raise
-
-    content_type = response.headers.get("content-type", "")
-    if "audio" not in content_type and "octet-stream" not in content_type:
-        raise ValueError(f"TTS response is not audio. content-type={content_type!r}")
-
-    logger.debug("TTS HTTP response bytes: %d", len(response.content))
-    return response.content
-
-
-# ---------------------------------------------------------------------------
-# s2_server モード（s2.cpp HTTP サーバーをホストと同じ lifespan で管理）
-# ---------------------------------------------------------------------------
-
-def _s2_bind_host(cfg: dict) -> str:
-    return str(cfg["tts"].get("s2_server_host", "127.0.0.1"))
-
-
-def _s2_port(cfg: dict) -> int:
-    return int(cfg["tts"].get("s2_server_port", 3030))
-
-
-def _s2_base_url(cfg: dict) -> str:
-    if cfg["tts"].get("s2_server_url"):
-        return str(cfg["tts"]["s2_server_url"]).rstrip("/")
-    host = _s2_bind_host(cfg)
-    connect_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
-    return f"http://{connect_host}:{_s2_port(cfg)}"
-
-
-def _s2_generation_params(cfg: dict) -> dict:
+async def _load_chatterbox_model(cfg: dict) -> None:
+    global _chatterbox_model
     tts = cfg["tts"]
-    params = {}
-    for key in (
-        "max_new_tokens",
-        "temperature",
-        "top_p",
-        "top_k",
-        "min_tokens_before_end",
-        "n_threads",
-        "verbose",
-    ):
-        if key in tts:
-            params[key] = tts[key]
-    return params
+    cuda_device = int(tts.get("cuda_device", 0))
+    device = "cuda" if cuda_device >= 0 else "cpu"
+    model_variant: str = tts.get("chatterbox_model", "multilingual")
 
+    logger.info("[tts] Chatterboxモデルを読み込み中 (device=%s, variant=%s)...", device, model_variant)
 
-async def _drain_process_stream(stream: asyncio.StreamReader | None, name: str) -> None:
-    if stream is None:
-        return
-    while True:
-        line = await stream.readline()
-        if not line:
-            return
-        logger.info("[s2.cpp:%s] %s", name, line.decode(errors="replace").rstrip())
-
-
-async def _is_tcp_open(host: str, port: int, timeout: float = 0.5) -> bool:
-    connect_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
-    try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(connect_host, port),
-            timeout=timeout,
+    if model_variant == "turbo":
+        from chatterbox.tts_turbo import ChatterboxTurboTTS
+        _chatterbox_model = await asyncio.to_thread(
+            ChatterboxTurboTTS.from_pretrained, device=device
         )
-        writer.close()
-        await writer.wait_closed()
-        _ = reader
-        return True
-    except OSError:
-        return False
-    except asyncio.TimeoutError:
-        return False
-
-
-def _s2_command(cfg: dict) -> list[str]:
-    tts = cfg["tts"]
-    cmd = [
-        str(tts["s2_binary"]),
-        "-m",
-        str(tts["s2_model"]),
-        "-t",
-        str(tts["s2_tokenizer"]),
-        "--server",
-        "-H",
-        _s2_bind_host(cfg),
-        "-P",
-        str(_s2_port(cfg)),
-    ]
-
-    cuda_device = tts.get("cuda_device")
-    vulkan_device = tts.get("vulkan_device")
-    if isinstance(cuda_device, int) and cuda_device >= 0:
-        cmd += ["-c", str(cuda_device)]
-    elif isinstance(vulkan_device, int) and vulkan_device >= 0:
-        cmd += ["-v", str(vulkan_device)]
-    elif tts.get("metal"):
-        cmd += ["-M"]
-
-    if "n_threads" in tts:
-        cmd += ["-threads", str(tts["n_threads"])]
-    if "max_new_tokens" in tts:
-        cmd += ["-max-tokens", str(tts["max_new_tokens"])]
-    if "temperature" in tts:
-        cmd += ["-temp", str(tts["temperature"])]
-    if "top_p" in tts:
-        cmd += ["-top-p", str(tts["top_p"])]
-    if "top_k" in tts:
-        cmd += ["-top-k", str(tts["top_k"])]
-    if "min_tokens_before_end" in tts:
-        cmd += ["--min-tokens-before-end", str(tts["min_tokens_before_end"])]
-
-    return cmd
-
-
-async def _ensure_s2_server(cfg: dict) -> None:
-    global _s2_server_process, _owns_s2_server
-
-    if _s2_server_process and _s2_server_process.returncode is None:
-        return
-
-    host = _s2_bind_host(cfg)
-    port = _s2_port(cfg)
-    if await _is_tcp_open(host, port):
-        logger.info("[tts] using existing s2.cpp server at %s", _s2_base_url(cfg))
-        _s2_server_process = None
-        _owns_s2_server = False
-        return
-
-    cmd = _s2_command(cfg)
-    logger.info("[tts] starting s2.cpp server: %s", " ".join(cmd))
-
-    env = os.environ.copy()
-    ld_library_path = [
-        str(Path(cmd[0]).parent),
-        "/models",
-        env.get("LD_LIBRARY_PATH", ""),
-    ]
-    env["LD_LIBRARY_PATH"] = ":".join(
-        dict.fromkeys(path for path in ld_library_path if path)
-    )
-
-    _s2_server_process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-    )
-    _owns_s2_server = True
-    if _s2_server_process.stdout:
-        _s2_server_log_tasks.append(
-            asyncio.create_task(_drain_process_stream(_s2_server_process.stdout, "stdout"))
-        )
-    if _s2_server_process.stderr:
-        _s2_server_log_tasks.append(
-            asyncio.create_task(_drain_process_stream(_s2_server_process.stderr, "stderr"))
+    else:
+        from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+        _chatterbox_model = await asyncio.to_thread(
+            ChatterboxMultilingualTTS.from_pretrained, device=device
         )
 
-    deadline = asyncio.get_running_loop().time() + float(
-        cfg["tts"].get("s2_server_start_timeout", _S2_SERVER_START_TIMEOUT)
-    )
-    while asyncio.get_running_loop().time() < deadline:
-        if _s2_server_process.returncode is not None:
-            raise RuntimeError(f"s2.cpp server exited early with code {_s2_server_process.returncode}")
-        if await _is_tcp_open(host, port, timeout=1.0):
-            logger.info("[tts] s2.cpp server ready at %s", _s2_base_url(cfg))
-            return
-        await asyncio.sleep(0.5)
-
-    message = f"s2.cpp server did not become ready at {_s2_base_url(cfg)}"
-    await shutdown()
-    raise TimeoutError(message)
+    logger.info("[tts] Chatterboxモデル読み込み完了")
 
 
-def _reference_audio_and_text(
-    cfg: dict,
-    speaker_override: str | None,
-) -> tuple[str | None, str | None]:
+def _reference_audio_path(cfg: dict, speaker_override: str | None) -> str | None:
     tts = cfg["tts"]
     speaker = speaker_override if speaker_override else tts.get("default_speaker", "default")
-    ref_audio: str | None = None
-    ref_text: str | None = None
 
     if speaker and speaker != "default":
         ref_audio = tts.get("voices", {}).get(speaker)
-        ref_text = tts.get("voice_texts", {}).get(speaker)
+        if ref_audio:
+            return ref_audio
 
-    if not ref_audio:
-        ref_audio = tts.get("default_ref_audio")
-        ref_text = tts.get("default_ref_text")
-
-    return ref_audio, ref_text
+    return tts.get("default_ref_audio")
 
 
-async def _synthesize_s2_server(
-    cfg: dict,
+def _chatterbox_synthesize_sync(
+    model: object,
     text: str,
-    speaker_override: str | None = None,
-    priority: str | int = "normal",
+    ref_audio: str | None,
+    language_id: str | None,
+    exaggeration: float,
+    cfg_weight: float,
+    model_variant: str,
 ) -> bytes:
-    async with _tts_slot(priority):
-        await _ensure_s2_server(cfg)
+    import torchaudio
 
-        url = f"{_s2_base_url(cfg)}/generate"
-        ref_audio, ref_text = _reference_audio_and_text(cfg, speaker_override)
-        multipart_fields: list[tuple[str, tuple]] = [("text", (None, text))]
-        params = _s2_generation_params(cfg)
-        if params:
-            multipart_fields.append(("params", (None, json.dumps(params))))
-
-        file_handle = None
-        try:
-            if ref_audio:
-                if not ref_text:
-                    raise ValueError(
-                        "s2_server voice cloning requires default_ref_text or [tts.voice_texts]."
-                    )
-                file_handle = Path(ref_audio).open("rb")
-                multipart_fields.append(
-                    ("reference", (Path(ref_audio).name, file_handle, "audio/wav"))
-                )
-                multipart_fields.append(("reference_text", (None, ref_text)))
-
-            logger.debug("TTS s2_server: url=%s text_length=%d", url, len(text))
-            response = await llm_client._get_http_client().post(
-                url,
-                files=multipart_fields,
-                timeout=_TIMEOUT_TTS,
-            )
-            response.raise_for_status()
-        finally:
-            if file_handle:
-                file_handle.close()
-
-        content_type = response.headers.get("content-type", "")
-        if "audio" not in content_type and "octet-stream" not in content_type:
-            raise ValueError(f"TTS response is not audio. content-type={content_type!r}")
-
-        logger.debug("TTS s2_server response bytes: %d", len(response.content))
-        return response.content
-
-
-# ---------------------------------------------------------------------------
-# subprocess モード（互換用: s2.cpp バイナリ直接呼び出し）
-# ---------------------------------------------------------------------------
-
-async def _synthesize_subprocess(
-    cfg: dict,
-    text: str,
-    speaker_override: str | None = None,
-    priority: str | int = "normal",
-) -> bytes:
-    async with _tts_slot(priority):
-        return await _synthesize_subprocess_inner(cfg, text, speaker_override)
-
-
-async def _synthesize_subprocess_inner(cfg: dict, text: str, speaker_override: str | None = None) -> bytes:
-    binary: str = cfg["tts"]["s2_binary"]
-    model: str = cfg["tts"]["s2_model"]
-    tokenizer: str = cfg["tts"]["s2_tokenizer"]
-
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        output_path = tmp.name
-
-    cuda_device: int = cfg["tts"].get("cuda_device", 0)
-    ref_audio, ref_text = _reference_audio_and_text(cfg, speaker_override)
-
-    cmd = [binary, "-m", model, "-t", tokenizer, "-text", text, "-o", output_path]
-    if cuda_device >= 0:
-        cmd += ["-c", str(cuda_device)]
+    kwargs: dict = {"exaggeration": exaggeration, "cfg_weight": cfg_weight}
     if ref_audio:
-        cmd += ["-pa", ref_audio]
-    if ref_text:
-        cmd += ["-pt", ref_text]
+        kwargs["audio_prompt_path"] = ref_audio
 
-    logger.debug("TTS subprocess: %s", " ".join(cmd))
+    if model_variant == "turbo":
+        wav = model.generate(text, **kwargs)  # type: ignore[union-attr]
+    else:
+        # ChatterboxMultilingualTTS.generate では language_id が必須の位置引数
+        lang = language_id or "en"
+        wav = model.generate(text, lang, **kwargs)  # type: ignore[union-attr]
 
-    env = os.environ.copy()
-    ld_library_path = [
-        str(Path(binary).parent),
-        "/models",
-        env.get("LD_LIBRARY_PATH", ""),
-    ]
-    env["LD_LIBRARY_PATH"] = ":".join(
-        dict.fromkeys(path for path in ld_library_path if path)
-    )
+    buf = io.BytesIO()
+    torchaudio.save(buf, wav, model.sr, format="wav")  # type: ignore[union-attr]
+    buf.seek(0)
+    return buf.read()
 
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
+
+async def _synthesize_chatterbox(
+    cfg: dict,
+    text: str,
+    speaker_override: str | None = None,
+    priority: str | int = "normal",
+) -> bytes:
+    async with _tts_slot(priority):
+        if _chatterbox_model is None:
+            await _load_chatterbox_model(cfg)
+
+        tts = cfg["tts"]
+        ref_audio = _reference_audio_path(cfg, speaker_override)
+        language_id: str | None = tts.get("language_id") or cfg.get("dj", {}).get("default_language")
+        exaggeration = float(tts.get("exaggeration", 0.5))
+        cfg_weight = float(tts.get("cfg_weight", 0.5))
+        model_variant: str = tts.get("chatterbox_model", "multilingual")
+
+        logger.debug(
+            "TTS chatterbox: text_length=%d, lang=%s, ref_audio=%s",
+            len(text), language_id, ref_audio,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_TIMEOUT_TTS)
-        _ = stdout
 
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"s2.cpp exited with code {proc.returncode}: {stderr.decode()}"
-            )
+        wav_bytes = await asyncio.to_thread(
+            _chatterbox_synthesize_sync,
+            _chatterbox_model, text, ref_audio, language_id,
+            exaggeration, cfg_weight, model_variant,
+        )
 
-        wav_bytes = Path(output_path).read_bytes()
-        logger.debug("TTS subprocess output bytes: %d", len(wav_bytes))
+        logger.debug("TTS chatterbox response bytes: %d", len(wav_bytes))
         return wav_bytes
-
-    finally:
-        Path(output_path).unlink(missing_ok=True)

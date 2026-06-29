@@ -16,6 +16,7 @@ from routers.config_router import router as config_router
 from routers.talk import router as talk_router
 from routers.station_id_router import router as station_id_router
 from routers.metrics_router import router as metrics_router
+from routers.voice_preview_router import router as voice_preview_router
 import services.llm_client as llm_client
 import services.tts_client as tts_client
 import services.station_id as station_id
@@ -120,6 +121,7 @@ app.include_router(config_router)
 app.include_router(talk_router)
 app.include_router(station_id_router)
 app.include_router(metrics_router)
+app.include_router(voice_preview_router)
 
 
 if __name__ == "__main__":

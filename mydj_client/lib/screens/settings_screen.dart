@@ -1,5 +1,7 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
 import '../providers/settings_provider.dart';
@@ -26,7 +28,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isTesting = false;
   bool _isLoadingConfig = false;
   bool _isDetectingLocation = false;
+  bool _isPreviewingVoice = false;
   HostConfig? _hostConfig;
+  final AudioPlayer _previewPlayer = AudioPlayer();
 
   String? _selectedModel;
   String? _selectedSpeaker;
@@ -69,7 +73,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _usernameCtrl.dispose();
     _djNameCtrl.dispose();
     _customPromptCtrl.dispose();
+    _previewPlayer.dispose();
     super.dispose();
+  }
+
+  Future<void> _previewVoice(String speaker) async {
+    if (_isPreviewingVoice) return;
+    final host = _hostCtrl.text.trim();
+    final port = int.tryParse(_portCtrl.text.trim()) ?? 8000;
+    if (host.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter host address first')),
+      );
+      return;
+    }
+    setState(() => _isPreviewingVoice = true);
+    try {
+      final client = HostClient(hostAddress: host, port: port);
+      final Uint8List bytes = await client.fetchVoicePreview(speaker);
+      if (!mounted) return;
+      final source = _BytesStreamSource(bytes);
+      await _previewPlayer.setAudioSource(source);
+      await _previewPlayer.seek(Duration.zero);
+      await _previewPlayer.play();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Preview failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isPreviewingVoice = false);
+    }
   }
 
   Future<void> _testConnection() async {
@@ -289,13 +324,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 12),
                 if (speakers.isNotEmpty)
-                  _dropdown(
-                    label: 'TTS Voice',
-                    value: speakers.contains(_selectedSpeaker)
-                        ? _selectedSpeaker!
-                        : speakers.first,
-                    items: speakers,
-                    onChanged: (v) => setState(() => _selectedSpeaker = v),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: _dropdown(
+                          label: 'TTS Voice',
+                          value: speakers.contains(_selectedSpeaker)
+                              ? _selectedSpeaker!
+                              : speakers.first,
+                          items: speakers,
+                          onChanged: (v) => setState(() => _selectedSpeaker = v),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: 'Preview voice',
+                        child: IconButton(
+                          onPressed: _isPreviewingVoice
+                              ? null
+                              : () => _previewVoice(
+                                    speakers.contains(_selectedSpeaker)
+                                        ? _selectedSpeaker!
+                                        : speakers.first,
+                                  ),
+                          icon: _isPreviewingVoice
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white54),
+                                )
+                              : const Icon(Icons.play_circle_outline,
+                                  color: Colors.white54, size: 28),
+                        ),
+                      ),
+                    ],
                   ),
               ],
 
@@ -469,4 +533,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }).toList(),
         onChanged: onChanged,
       );
+}
+
+class _BytesStreamSource extends StreamAudioSource {
+  final Uint8List _bytes;
+  _BytesStreamSource(this._bytes) : super(tag: 'voice-preview');
+
+  @override
+  Future<StreamAudioResponse> request([int? start, int? end]) async {
+    final s = start ?? 0;
+    final e = end ?? _bytes.length;
+    return StreamAudioResponse(
+      sourceLength: _bytes.length,
+      contentLength: e - s,
+      offset: s,
+      stream: Stream.value(_bytes.sublist(s, e)),
+      contentType: 'audio/wav',
+    );
+  }
 }

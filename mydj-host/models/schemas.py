@@ -26,6 +26,7 @@ class DjPreferences(BaseModel):
     username: Optional[str] = None       # リスナーの名前（任意）
     dj_name: Optional[str] = None        # DJの名前（任意）
     custom_prompt: Optional[str] = None  # ユーザーカスタム指示（任意）
+    language: Optional[str] = None       # トーク言語: "en" | "ja" | "zh" | "ko" | "fr" | "de" | "es"
 
 
 class TalkRequest(BaseModel):

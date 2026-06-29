@@ -26,35 +26,27 @@ max_tokens = 220
 # keep_alive = "10m"
 
 [tts]
-# mode = "http"  で fish-speech の HTTP サーバーを使う
-# mode = "s2_server" で s2.cpp をホスト起動中だけ常駐させる（推奨）
-# mode = "subprocess" で s2.cpp バイナリを直接呼び出す
-mode = "s2_server"
-
-# mode = "http" のとき使用
-fish_speech_url = "http://localhost:8080"
-default_speaker = "default"
-
-# mode = "s2_server" / "subprocess" のとき使用
-s2_binary = "../s2.cpp/build/s2"
-s2_model   = "../models/s2-pro-q4_k_m.gguf"
-s2_tokenizer = "../models/tokenizer.json"
-s2_server_host = "127.0.0.1"
-s2_server_port = 3030
-s2_server_start_timeout = 120
-cuda_device = 0
+# chatterbox_model:
+#   "multilingual" — 23言語以上対応（日本語含む）、推奨
+#   "turbo"        — 英語専用、低レイテンシ
+chatterbox_model = "multilingual"
+language_id = "en"
+cuda_device = 0          # CUDA GPU インデックス（-1 で CPU のみ）
 audio_format = "wav"
 
-# 任意: ボイスクローン用の参照音声と、その文字起こし。
-# default_ref_audio = "voices/default.wav"
-# default_ref_text = "The exact transcript of the reference audio."
+# 感情表現の強さ（0.0〜1.0+、デフォルト 0.5）
+exaggeration = 0.5
+# 話者一致度（デフォルト 0.5、低いほど自然な話速）
+cfg_weight = 0.5
 
-# 任意: アプリ側で選べる話者。
+# ボイスクローン: 5〜30 秒の参照音声ファイルを指定する
+# ※ 文字起こしテキストは不要
+# default_ref_audio = "voices/default.wav"
+
+# 複数の声を登録してアプリから選択可能にする場合:
 # [tts.voices]
-# james = "voices/james.wav"
-#
-# [tts.voice_texts]
-# james = "The exact transcript of james.wav."
+# nova  = "voices/nova.wav"
+# atlas = "voices/atlas.wav"
 
 [dj]
 default_language = "en"
