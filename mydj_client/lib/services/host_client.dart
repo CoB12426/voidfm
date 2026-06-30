@@ -14,6 +14,7 @@ class TalkJobStatus {
   final double? totalTime;
   final int? audioBytes;
   final bool cached;
+  final String? preview;
 
   const TalkJobStatus({
     required this.jobId,
@@ -24,6 +25,7 @@ class TalkJobStatus {
     this.totalTime,
     this.audioBytes,
     this.cached = false,
+    this.preview,
   });
 
   factory TalkJobStatus.fromJson(Map<String, dynamic> json) => TalkJobStatus(
@@ -35,7 +37,14 @@ class TalkJobStatus {
         totalTime: (json['total_time'] as num?)?.toDouble(),
         audioBytes: json['audio_bytes'] as int?,
         cached: json['cached'] as bool? ?? false,
+        preview: json['preview'] as String?,
       );
+}
+
+class TalkFetchResult {
+  final Uint8List audio;
+  final String? script;
+  const TalkFetchResult({required this.audio, this.script});
 }
 
 class HostClient {
@@ -90,11 +99,11 @@ class HostClient {
     }
   }
 
-  /// POST /talk — DJ トーク音声を取得。
+  /// POST /talk — DJ トーク音声と台本テキストを取得。
   ///
   /// [_client] が設定されている場合はそのクライアントを使用する。
   /// 呼び出し元が [_client].close() を呼ぶことでリクエストをキャンセルできる。
-  Future<Uint8List> fetchTalk({
+  Future<TalkFetchResult> fetchTalk({
     required TrackInfo nextTrack,
     TrackInfo? previousTrack,
     required DjPreferences preferences,
@@ -123,7 +132,7 @@ class HostClient {
     return _fetchTalkJob(body);
   }
 
-  Future<Uint8List> _fetchTalkJob(String body) async {
+  Future<TalkFetchResult> _fetchTalkJob(String body) async {
     final client = _client ?? http.Client();
     final owned = _client == null;
     _cancelRequested = false;
@@ -140,7 +149,7 @@ class HostClient {
 
       if (createResponse.statusCode == 404 ||
           createResponse.statusCode == 405) {
-        return _fetchTalkLegacy(client, body);
+        return await _fetchTalkLegacy(client, body);
       }
       if (createResponse.statusCode != 200) {
         final detail = _extractDetail(createResponse.body);
@@ -176,7 +185,10 @@ class HostClient {
               'cached: ${status.cached})',
             );
           }
-          return audio.bodyBytes;
+          final script = await _fetchTalkJobScript(client, jobId)
+                  .catchError((_) => null) ??
+              status.preview;
+          return TalkFetchResult(audio: audio.bodyBytes, script: script);
         }
 
         if (status.status == 'failed' || status.status == 'cancelled') {
@@ -206,7 +218,18 @@ class HostClient {
     return TalkJobStatus.fromJson(json);
   }
 
-  Future<Uint8List> _fetchTalkLegacy(http.Client client, String body) async {
+  Future<String?> _fetchTalkJobScript(http.Client client, String jobId) async {
+    final response = await client
+        .get(_uri('/talk_jobs/$jobId/script'))
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) return null;
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return json['text'] as String?;
+  }
+
+  Future<TalkFetchResult> _fetchTalkLegacy(
+      http.Client client, String body) async {
     final response = await client
         .post(
           _uri('/talk'),
@@ -228,7 +251,7 @@ class HostClient {
           'DjProvider(HostClient): Generation took $totalTime s (LLM: $llmTime s, TTS: $ttsTime s)');
     }
 
-    return response.bodyBytes;
+    return TalkFetchResult(audio: response.bodyBytes, script: null);
   }
 
   Future<void> cancelActiveTalkJob() async {
@@ -261,7 +284,8 @@ class HostClient {
           .timeout(const Duration(seconds: 30));
       if (response.statusCode != 200) {
         final detail = _extractDetail(response.body);
-        throw Exception('fetchVoicePreview failed (${response.statusCode}): $detail');
+        throw Exception(
+            'fetchVoicePreview failed (${response.statusCode}): $detail');
       }
       return response.bodyBytes;
     } finally {

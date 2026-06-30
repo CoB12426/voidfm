@@ -73,6 +73,11 @@ class TalkJobStatusResponse(BaseModel):
     preview: Optional[str] = None
 
 
+class TalkJobScriptResponse(BaseModel):
+    job_id: str
+    text: str
+
+
 class MetricsResponse(BaseModel):
     counters: dict[str, int]
     recent_jobs: list[TalkJobStatusResponse]

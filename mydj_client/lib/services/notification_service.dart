@@ -69,8 +69,11 @@ class NotificationService {
     return _trackEndingStream!;
   }
 
-  Future<void> skipToNext() async =>
-      _methodChannel.invokeMethod<void>('skipToNext');
+  Future<void> skipToNext({bool userInitiated = true}) async =>
+      _methodChannel.invokeMethod<void>(
+        'skipToNext',
+        {'userInitiated': userInitiated},
+      );
   Future<void> skipToPrevious() async =>
       _methodChannel.invokeMethod<void>('skipToPrevious');
 
@@ -101,6 +104,16 @@ class NotificationService {
     try {
       await _methodChannel
           .invokeMethod<void>('setDjHoldPlayback', {'hold': hold});
+    } catch (_) {}
+  }
+
+  /// 現在曲の終端で DJ トーク/ジングルを挟む予定があるかを Android 側へ同期する。
+  Future<void> setTrackEndInterventionEnabled(bool enabled) async {
+    try {
+      await _methodChannel.invokeMethod<void>(
+        'setTrackEndInterventionEnabled',
+        {'enabled': enabled},
+      );
     } catch (_) {}
   }
 

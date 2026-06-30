@@ -60,7 +60,10 @@ def _auth_headers(cfg: dict) -> dict[str, str]:
 
 
 def _normalize_base_url(url: str) -> str:
-    parts = urlsplit(url.strip())
+    url = url.strip()
+    if "://" not in url:
+        url = "http://" + url
+    parts = urlsplit(url)
     path = parts.path
     while "//" in path:
         path = path.replace("//", "/")

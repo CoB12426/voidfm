@@ -5,3 +5,4 @@ tomli>=2.0.1; python_version < "3.11"
 pydantic>=2.7.0
 chatterbox-tts
 torchaudio
+soundfile>=0.12.1

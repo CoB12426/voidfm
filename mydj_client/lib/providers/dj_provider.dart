@@ -47,6 +47,7 @@ class DjProvider extends ChangeNotifier {
   bool _isGeneratingTalk = false;
   bool? _hostConnected;
   String? _lastTalkError;
+  String? _lastTalkScript;
   DjRuntimeState _runtimeState = DjRuntimeState.off;
 
   TrackInfo? get currentTrack => _currentTrack;
@@ -59,6 +60,7 @@ class DjProvider extends ChangeNotifier {
   bool get isGeneratingTalk => _isGeneratingTalk;
   bool? get hostConnected => _hostConnected;
   String? get lastTalkError => _lastTalkError;
+  String? get lastTalkScript => _lastTalkScript;
   DjRuntimeState get runtimeState => _runtimeState;
 
   // ── 内部状態 ──────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ class DjProvider extends ChangeNotifier {
   bool _suppressNextTalk = false; // 次回 void talk をスキップ
   bool _isHandlingTrackEndingSoon = false;
   bool _trackChangedDuringTalk = false; // トーク中に曲が自然進行したか
+  bool _acceptNextTrackAfterTalk = false; // トーク後の内部 next による曲変更を通常受理する
   DateTime? _trackStartTime;
 
   // トーク頻度管理
@@ -89,7 +92,7 @@ class DjProvider extends ChangeNotifier {
   static const _ttsReadyTimeout = Duration(seconds: 25);
 
   // ── TTS 生成 ──────────────────────────────────────────────────────────
-  Completer<Uint8List?>? _ttsCompleter;
+  Completer<TalkFetchResult?>? _ttsCompleter;
   TrackInfo? _ttsForTrack; // 生成対象の currentTrack
   TrackInfo? _ttsNextTrack; // 生成開始時に使った nextTrack
   String? _ttsRequestKey; // 生成要求キー（同一条件の重複生成防止）
@@ -170,6 +173,7 @@ class DjProvider extends ChangeNotifier {
       _songsSinceTalk = 0;
       _plannedTalkType = _PlannedTalkType.none;
       _plannedForTrack = null;
+      await _notif.setTrackEndInterventionEnabled(false);
       _cancelTts();
       if (_isPlayingTalk) {
         await _audio.stop();
@@ -242,11 +246,31 @@ class DjProvider extends ChangeNotifier {
       _awaitingMusic = false;
       _planNextTalkForCurrentTrack();
       _preparePlannedTalkForCurrentTrack();
+      // Kotlin の onMetadataChanged が djActive=true で自動ポーズしているため再開する。
+      // 最初の曲は DJ トークなしでそのまま流す（イントロ済み）。
+      await _restoreMusicPlayback();
+      return;
+    }
+
+    // DJ トークを挟んだ直後の曲変更。
+    // ここで前曲の「自然終了」処理を再実行すると、再生済みトークや準備中TTSを
+    // もう一度扱ってしまうため、新しい現在曲向けの準備だけ行う。
+    if (_acceptNextTrackAfterTalk) {
+      _acceptNextTrackAfterTalk = false;
+      _suppressNextTalk = false;
+      debugPrint(
+          'DjProvider: accepted track change after DJ talk — planning for new track');
+      if (_isHandlingTrackEndingSoon || _isPlayingTalk) {
+        _trackChangedDuringTalk = true;
+        return;
+      }
+      _cancelTts();
+      _planNextTalkForCurrentTrack();
+      _preparePlannedTalkForCurrentTrack();
       return;
     }
 
     // ── トーク処理中の自然進行（isUserSkip より先に評価）────────────────
-    // _suppressNextTalk=true は onTrackEndingSoon が内部的にセットする値であり、
     // トーク再生中に届く自然な曲進行を「ユーザースキップ」と誤判定するのを防ぐ。
     if (_isHandlingTrackEndingSoon || _isPlayingTalk) {
       _trackChangedDuringTalk = true;
@@ -265,6 +289,7 @@ class DjProvider extends ChangeNotifier {
       _cancelTts();
       _plannedTalkType = _PlannedTalkType.none;
       _plannedForTrack = null;
+      _syncTrackEndInterventionForPlan();
       if (_isPlayingTalk) {
         // void talk 再生中にスキップ → 中断して音楽へ
         // finallyブロックが resumeMusic / holdPlayback解除を担う
@@ -377,6 +402,10 @@ class DjProvider extends ChangeNotifier {
         _cancelTts();
         await _notif.clearPreEndPending(); // バッファ済み通知を解放
         await _restoreMusicPlayback();
+        // await 中に onTrackChanged が先行して届いた場合、その曲の planning が
+        // 未実施になるため、ここで補完する（_plannedForTrack ガードが重複を防ぐ）。
+        _planNextTalkForCurrentTrack();
+        _preparePlannedTalkForCurrentTrack();
         return;
       }
 
@@ -385,7 +414,6 @@ class DjProvider extends ChangeNotifier {
         debugPrint(
             'DjProvider: onTrackEndingSoon — radio4all ($_talkPlayCount)');
         _cancelTts();
-        _suppressNextTalk = true;
         await _playAssetTalk(_radioAllAsset, usePreEndPending: true);
         _planNextTalkForCurrentTrack();
         _preparePlannedTalkForCurrentTrack();
@@ -414,8 +442,6 @@ class DjProvider extends ChangeNotifier {
         }
       }
 
-      // この切り替えでは onTrackChanged 側のトーク実行を抑止
-      _suppressNextTalk = true;
       await _playVoidTalk(usePreEndPending: true);
       _planNextTalkForCurrentTrack();
       _preparePlannedTalkForCurrentTrack();
@@ -453,6 +479,7 @@ class DjProvider extends ChangeNotifier {
       await Future.delayed(const Duration(milliseconds: 150));
       bool shouldSkip;
       if (usePreEndPending) {
+        _acceptNextTrackAfterTalk = true;
         final trackAdvanced = await _notif.clearPreEndPending();
         shouldSkip = !trackAdvanced;
         debugPrint(
@@ -460,7 +487,7 @@ class DjProvider extends ChangeNotifier {
       } else {
         shouldSkip = skipToNextAfterTalk;
       }
-      if (shouldSkip) await _notif.skipToNext();
+      if (shouldSkip) await _notif.skipToNext(userInitiated: true);
       await _restoreMusicPlayback();
       _isPlayingTalk = false;
       if (_isOnAir && _runtimeState != DjRuntimeState.error) {
@@ -588,7 +615,7 @@ class DjProvider extends ChangeNotifier {
     _ttsForTrack = forTrack;
     _ttsNextTrack = songNext;
     _ttsRequestKey = requestKey;
-    final completer = Completer<Uint8List?>();
+    final completer = Completer<TalkFetchResult?>();
     _ttsCompleter = completer;
     _setGeneratingTalk(true);
     _setRuntimeState(DjRuntimeState.preparing);
@@ -600,11 +627,11 @@ class DjProvider extends ChangeNotifier {
       previousTrack: forTrack,
       nextTrack: songNext,
       trackHistory: historySnap,
-    ).then((bytes) {
+    ).then((result) {
       debugPrint(
-          'DjProvider: TTS generation completed (${bytes?.length ?? 0} bytes)');
+          'DjProvider: TTS generation completed (${result?.audio.length ?? 0} bytes)');
       if (!completer.isCompleted) {
-        completer.complete(bytes);
+        completer.complete(result);
       } else {
         debugPrint(
             'DjProvider: TTS Completer already completed (discarding result)');
@@ -641,7 +668,7 @@ class DjProvider extends ChangeNotifier {
     _ttsRequestKey =
         '${forTrack.artist}\u0001${forTrack.title}\u0001station_id';
     _prependJingle = true; // 再生前に jingle.m4a を挟む
-    final completer = Completer<Uint8List?>();
+    final completer = Completer<TalkFetchResult?>();
     _ttsCompleter = completer;
     _setGeneratingTalk(true);
     _setRuntimeState(DjRuntimeState.preparing);
@@ -649,7 +676,10 @@ class DjProvider extends ChangeNotifier {
     debugPrint('DjProvider: station ID fetch start');
     _fetchStationId().then((bytes) {
       debugPrint('DjProvider: station ID done (${bytes?.length ?? 0} bytes)');
-      if (!completer.isCompleted) completer.complete(bytes);
+      if (!completer.isCompleted) {
+        completer.complete(
+            bytes != null ? TalkFetchResult(audio: bytes, script: null) : null);
+      }
       if (_ttsCompleter == completer || _ttsCompleter == null) {
         _setGeneratingTalk(false);
         if (_isOnAir && _runtimeState == DjRuntimeState.preparing) {
@@ -701,6 +731,7 @@ class DjProvider extends ChangeNotifier {
     if (!_isOnAir || cur == null) {
       _plannedTalkType = _PlannedTalkType.none;
       _plannedForTrack = null;
+      _syncTrackEndInterventionForPlan();
       return;
     }
 
@@ -711,6 +742,7 @@ class DjProvider extends ChangeNotifier {
     if (!shouldTalk) {
       _plannedTalkType = _PlannedTalkType.none;
       _plannedForTrack = cur;
+      _syncTrackEndInterventionForPlan();
       debugPrint(
           'DjProvider: planned talk = none (frequency count=$_songsSinceTalk)');
       return;
@@ -719,6 +751,7 @@ class DjProvider extends ChangeNotifier {
     if (_shouldPlayRadioAll()) {
       _plannedTalkType = _PlannedTalkType.radioAll;
       _plannedForTrack = cur;
+      _syncTrackEndInterventionForPlan();
       debugPrint('DjProvider: planned talk = radio4all ($_talkPlayCount)');
       return;
     }
@@ -727,8 +760,16 @@ class DjProvider extends ChangeNotifier {
         ? _PlannedTalkType.stationId
         : _PlannedTalkType.dj;
     _plannedForTrack = cur;
+    _syncTrackEndInterventionForPlan();
     debugPrint(
         'DjProvider: planned talk = $_plannedTalkType for "${cur.title}"');
+  }
+
+  void _syncTrackEndInterventionForPlan() {
+    final enabled = _isOnAir &&
+        _plannedForTrack == _currentTrack &&
+        _plannedTalkType != _PlannedTalkType.none;
+    unawaited(_notif.setTrackEndInterventionEnabled(enabled));
   }
 
   void _preparePlannedTalkForCurrentTrack() {
@@ -749,7 +790,7 @@ class DjProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> _waitForTtsReady(Completer<Uint8List?> completer) async {
+  Future<bool> _waitForTtsReady(Completer<TalkFetchResult?> completer) async {
     try {
       await completer.future.timeout(_ttsReadyTimeout);
       return true;
@@ -764,8 +805,12 @@ class DjProvider extends ChangeNotifier {
     if (_runtimeState != DjRuntimeState.error) {
       _setRuntimeState(DjRuntimeState.recovering);
     }
-    await _audio.resumeMusic();
+    // holdPlayback を先に解除してから play を送る。
+    // resumeMusic() 内でも holdPlayback=false が設定されるが、
+    // setDjHoldPlayback を先に呼ぶことで onMetadataChanged との
+    // 競合ウィンドウを最小化する。
     await _notif.setDjHoldPlayback(false);
+    await _audio.resumeMusic();
     if (_isOnAir &&
         !_isPlayingTalk &&
         !_isGeneratingTalk &&
@@ -781,7 +826,8 @@ class DjProvider extends ChangeNotifier {
   Future<void> _playVoidTalk(
       {bool skipToNextAfterTalk = false, bool usePreEndPending = false}) async {
     debugPrint('DjProvider: _playVoidTalk start');
-    final wavBytes = await _ttsCompleter!.future;
+    final fetchResult = await _ttsCompleter!.future;
+    final wavBytes = fetchResult?.audio;
     final withJingle = _prependJingle;
     _cancelTts();
 
@@ -792,6 +838,7 @@ class DjProvider extends ChangeNotifier {
       return;
     }
 
+    _lastTalkScript = fetchResult?.script;
     debugPrint(
         'DjProvider: _playVoidTalk — ${wavBytes.length} bytes, jingle=$withJingle');
     _isPlayingTalk = true;
@@ -805,13 +852,14 @@ class DjProvider extends ChangeNotifier {
       await Future.delayed(const Duration(milliseconds: 150));
 
       if (withJingle) {
-        debugPrint('DjProvider: _playVoidTalk — playing jingle');
-        await _audio.playAsset('assets/audio/jingle.m4a');
+        debugPrint('DjProvider: _playVoidTalk — playing jingle + station ID');
+        await _audio.playJingleThenTalk('assets/audio/jingle.m4a', wavBytes);
+        debugPrint('DjProvider: _playVoidTalk — jingle + station ID done');
+      } else {
+        debugPrint('DjProvider: _playVoidTalk — playTalk()');
+        await _audio.playTalk(wavBytes, contentType: 'audio/mpeg');
+        debugPrint('DjProvider: _playVoidTalk — playTalk done');
       }
-
-      debugPrint('DjProvider: _playVoidTalk — playTalk()');
-      await _audio.playTalk(wavBytes, contentType: 'audio/mpeg');
-      debugPrint('DjProvider: _playVoidTalk — playTalk done');
     } catch (e) {
       debugPrint('DjProvider: _playVoidTalk error: $e');
       _lastTalkError = e.toString();
@@ -822,6 +870,7 @@ class DjProvider extends ChangeNotifier {
 
       bool shouldSkip;
       if (usePreEndPending) {
+        _acceptNextTrackAfterTalk = true;
         // Kotlin バッファを解放し、トラックが既に進行済みかを確認する
         final trackAdvanced = await _notif.clearPreEndPending();
         shouldSkip = !trackAdvanced;
@@ -840,7 +889,7 @@ class DjProvider extends ChangeNotifier {
 
       if (shouldSkip) {
         debugPrint('DjProvider: _playVoidTalk — skipToNext() before resume');
-        await _notif.skipToNext();
+        await _notif.skipToNext(userInitiated: true);
       }
 
       await _restoreMusicPlayback();
@@ -854,8 +903,8 @@ class DjProvider extends ChangeNotifier {
     }
   }
 
-  /// ホストへリクエストを送り音声バイト列を返す（null = 失敗 or キャンセル）。
-  Future<Uint8List?> _generateTts({
+  /// ホストへリクエストを送り音声と台本テキストを返す（null = 失敗 or キャンセル）。
+  Future<TalkFetchResult?> _generateTts({
     required TrackInfo previousTrack,
     required TrackInfo nextTrack,
     List<TrackInfo> trackHistory = const [],
@@ -869,14 +918,14 @@ class DjProvider extends ChangeNotifier {
     _ttsHttpClient = client;
     _ttsHostClient = hostClient;
     try {
-      final bytes = await hostClient.fetchTalk(
+      final result = await hostClient.fetchTalk(
         previousTrack: previousTrack,
         nextTrack: nextTrack,
         preferences: _preferences,
         trackHistory: trackHistory,
       );
-      debugPrint('DjProvider: TTS done (${bytes.length} bytes)');
-      return bytes;
+      debugPrint('DjProvider: TTS done (${result.audio.length} bytes)');
+      return result;
     } on http.ClientException catch (e) {
       // client.close() によるキャンセル、または接続エラー
       debugPrint('DjProvider: TTS cancelled or connection error: $e');

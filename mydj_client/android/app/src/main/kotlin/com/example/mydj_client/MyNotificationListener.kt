@@ -54,6 +54,13 @@ class MyNotificationListener : NotificationListenerService() {
         var djActive: Boolean = false
 
         /**
+         * true のときだけ現在曲の終端でフェード/一時停止し、Flutter の void talk に渡す。
+         * Flutter 側で曲開始時に今回の曲間トーク有無を決めて同期する。
+         */
+        @Volatile
+        var trackEndInterventionEnabled: Boolean = false
+
+        /**
          * true の間は、外部プレイヤーが勝手に再開しても即 pause して
          * DJ トーク再生中の重なりを防ぐ。
          * Flutter から setDjHoldPlayback(true/false) でセット/クリアされる。
@@ -218,7 +225,11 @@ class MyNotificationListener : NotificationListenerService() {
             private var preEndPauseSentForTrack = false
 
             private fun maybePauseBeforeTrackEnd() {
-                if (!djActive || isUserSkipGuardActive() || preEndPauseSentForTrack) return
+                if (!djActive ||
+                    !trackEndInterventionEnabled ||
+                    isUserSkipGuardActive() ||
+                    preEndPauseSentForTrack
+                ) return
 
                 val state = latestPlaybackState ?: return
                 if (state.state != PlaybackState.STATE_PLAYING) return
@@ -264,6 +275,7 @@ class MyNotificationListener : NotificationListenerService() {
 
             private fun schedulePreEndMonitorIfNeeded() {
                 if (!djActive) return
+                if (!trackEndInterventionEnabled) return
                 if (isUserSkipGuardActive()) return
                 val state = latestPlaybackState ?: return
                 if (state.state != PlaybackState.STATE_PLAYING) return
@@ -278,6 +290,7 @@ class MyNotificationListener : NotificationListenerService() {
                             val keepRunning = latest != null &&
                                 latest.state == PlaybackState.STATE_PLAYING &&
                                 djActive &&
+                                trackEndInterventionEnabled &&
                                 !isUserSkipGuardActive() &&
                                 !holdPlayback &&
                                 currentDurationMs > 0L &&
@@ -320,7 +333,12 @@ class MyNotificationListener : NotificationListenerService() {
                     }
                     // DJモードON時に自然に曲が切り替わった場合、VoidTalkとの音声被りを防ぐため即座に一時停止しブロックする。
                     // 30秒未満の短い曲の場合は、ギャップレス再生対策による強制一時停止を行わない。
-                    if (djActive && !isUserSkipGuardActive() && !holdPlayback && currentDurationMs > 30000L) {
+                    if (djActive &&
+                        trackEndInterventionEnabled &&
+                        !isUserSkipGuardActive() &&
+                        !holdPlayback &&
+                        currentDurationMs > 30000L
+                    ) {
                         holdPlayback = true
                         controller.transportControls.pause()
                         Log.d(TAG, "djActive: paused immediately on metadata track change (duration=$currentDurationMs)")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import random
+from collections import deque
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -81,9 +82,9 @@ _WEATHER_CACHE_TTL = 3600  # 1時間
 # ---------------------------------------------------------------------------
 
 _LENGTH_INSTRUCTIONS: dict[str, str] = {
-    "short":  "LENGTH: Aim for 20–35 words. One tight thought, then out.",
-    "medium": "LENGTH: Aim for 50–80 words. Two or three beats — bit, track mention, move on.",
-    "long":   "LENGTH: Aim for 90–130 words. Take your time: open strong, develop the bit, land the track intro.",
+    "short":  "LENGTH: Aim for 18–30 words. One quick DJ beat, then the track.",
+    "medium": "LENGTH: Aim for 35–60 words. Two quick beats max — a light opener and a clean track intro.",
+    "long":   "LENGTH: Aim for 70–100 words. Still radio-tight: open, add one detail, land the track intro.",
 }
 
 # ---------------------------------------------------------------------------
@@ -92,63 +93,63 @@ _LENGTH_INSTRUCTIONS: dict[str, str] = {
 
 _PERSONALITIES: dict[str, dict] = {
     "standard": {
-        "persona": "a charismatic late-night radio DJ",
-        "style": "Warm, loose, and believable — the natural confidence of someone who has done this for years. "
-                 "Let observations breathe. Sound like you're talking to one person, not a crowd.",
-        "joke_rate": 0.45,
-        "emotions": "(excited)\n  (laugh)",
+        "persona": "a warm music radio DJ",
+        "style": "Natural, present, and easy to follow. Speak in plain conversational sentences, like you are riding "
+                 "the last seconds of a segue. Keep the listener's focus on the song coming up.",
+        "joke_rate": 0.30,
+        "emotions": "[laugh]\n  [breath]",
         "house_rules": (
-            "- Deliver the airbreak like a seasoned pro: relaxed timing, no rushing.\n"
-            "- A small pause of thought is fine — don't fill every gap with filler words.\n"
-            "- Keep one foot in the music: the track intro should feel like a natural landing."
+            "- Sound live and relaxed: one clear thought, no essay shape.\n"
+            "- Use everyday radio phrasing, not polished copy or big metaphors.\n"
+            "- Make the next track feel like the reason you opened the mic."
         ),
     },
     "energetic": {
-        "persona": "a high-energy club and festival DJ",
-        "style": "Punchy, fast, and infectious. Every sentence should feel like it's pushing the energy forward. "
-                 "Short bursts, no meandering.",
-        "joke_rate": 0.35,
-        "emotions": "(excited)",
+        "persona": "an upbeat drive-time music radio DJ",
+        "style": "Bright, punchy, and rhythmic. Keep the pace moving with short spoken lines, but stay warm and human. "
+                 "Hype the track without sounding like an ad.",
+        "joke_rate": 0.25,
+        "emotions": "[gasp]\n  [breath]",
         "house_rules": (
-            "- Open with impact — first word should land hard.\n"
-            "- Sentences are short. Fragments are fine when they hit right.\n"
-            "- The track intro is a hype moment, not a footnote — sell it."
+            "- Open with momentum, like the music is already pushing you forward.\n"
+            "- Keep sentences short enough to say cleanly over a bed.\n"
+            "- Sell the next track with feeling, not shouting."
         ),
     },
     "chill": {
-        "persona": "a mellow late-night radio host",
-        "style": "Soft, unhurried. Speak like you're having a quiet conversation at 2 AM with a friend who "
-                 "can't sleep. Dry humor and odd little thoughts welcome.",
-        "joke_rate": 0.40,
-        "emotions": "(sigh)\n  (laugh)",
+        "persona": "a mellow late-night music radio DJ",
+        "style": "Soft, unhurried, and intimate. Speak like the studio lights are low and the listener is close by. "
+                 "Small dry humor is fine, but keep it simple.",
+        "joke_rate": 0.25,
+        "emotions": "[sigh]\n  [laugh]",
         "house_rules": (
-            "- Never rush. Let ideas trail off naturally before landing.\n"
-            "- Lowercase energy: small observations, not big announcements.\n"
-            "- The track intro can be almost an afterthought — whisper it in."
+            "- Let the air breathe, but do not drift into a monologue.\n"
+            "- Use small observations, not elaborate stories.\n"
+            "- Ease into the next track like it belongs in the room."
         ),
     },
     "intellectual": {
-        "persona": "a knowledgeable music critic and cultural radio host",
-        "style": "Thoughtful and specific. Draw unexpected connections between music, culture, and everyday life. "
-                 "Make the listener feel like they just learned something without being lectured.",
-        "joke_rate": 0.25,
-        "emotions": "(sigh)",
+        "persona": "a thoughtful music radio DJ",
+        "style": "Smart but conversational. Offer one simple musical or cultural note when it fits, then get back to "
+                 "the feeling of the next track. Never lecture.",
+        "joke_rate": 0.15,
+        "emotions": "[sigh]",
         "house_rules": (
-            "- Lead with an insight, not a punchline.\n"
-            "- If you reference an album or artist, say something true and specific about them.\n"
-            "- The track intro should feel earned — the end of a thought, not a pivot."
+            "- One insight is enough; make it sound spoken, not written.\n"
+            "- If you mention a music fact, keep it true, brief, and relevant.\n"
+            "- Land on the next track before the thought gets academic."
         ),
     },
     "comedian": {
-        "persona": "a comedy radio DJ who treats every airbreak as a mini stand-up set",
-        "style": "Always land a joke, pun, or absurd aside. Structure: setup → punchline → music pivot. "
-                 "Speed is your friend. Commit to the bit.",
-        "joke_rate": 0.85,
-        "emotions": "(laugh)\n  (excited)",
+        "persona": "a funny music radio DJ",
+        "style": "Light, quick, and playful. Use easy radio jokes, small self-deprecation, or one odd observation. "
+                 "The joke should feel tossed off on-air, not like a stand-up routine.",
+        "joke_rate": 0.70,
+        "emotions": "[laugh]\n  [cough]",
         "house_rules": (
-            "- The bit IS the airbreak. Music info is just the closing tag.\n"
-            "- If the joke doesn't land in two sentences, cut it and try something else.\n"
-            "- Self-deprecating, absurdist, or observational — any style is fine, but commit fully."
+            "- Keep the joke simple enough to understand while half-listening.\n"
+            "- Use one funny image or aside, then move on.\n"
+            "- The track intro is still the payoff; do not bury the song under the bit."
         ),
     },
 }
@@ -166,10 +167,11 @@ def _get_personality(personality: Optional[str]) -> dict:
 
 def _emotion_guide(personality_cfg: dict) -> str:
     return (
-        f"You may use these emotion tags (1–2 max, use sparingly):\n"
+        f"You may use these supported TTS tags (1–2 max, use sparingly):\n"
         f"  {personality_cfg['emotions']}\n"
-        "  (sigh)  — a sigh\n"
-        "Example: \"What a track! (laugh) Let's keep it going.\""
+        "Supported tags are exactly: [sigh], [gasp], [cough], [laugh], [whisper], [breath].\n"
+        "Never invent or output any other bracketed performance tag.\n"
+        "Example: \"What a track! [laugh] Let's keep it going.\""
     )
 
 
@@ -180,9 +182,9 @@ def _emotion_guide(personality_cfg: dict) -> str:
 def _joke_hint(personality_cfg: dict) -> str:
     if random.random() < personality_cfg["joke_rate"]:
         return random.choice([
-            "Include a quick off-topic joke or dry one-liner.",
-            "Add a funny fake observation about daily life, radio, technology, food, traffic, or tiny inconveniences.",
-            "Slip in a witty aside that sounds improvised, not written.",
+            "Include a quick off-topic joke or dry one-liner, then get back to the music.",
+            "Add one funny radio-studio observation, like a small equipment mishap or odd listener note.",
+            "Slip in a casual aside that sounds improvised, not written.",
         ])
     return ""
 
@@ -193,47 +195,84 @@ def _joke_hint(personality_cfg: dict) -> str:
 
 _AIRBREAK_BITS: tuple[tuple[int, str, str], ...] = (
     (
-        20,
+        14,
         "song hype intro",
-        "Build genuine anticipation for the next track. Talk it up like a DJ who loves this song — "
-        "mention what makes it special (the drop, the hook, the vibe, the memory it triggers). "
-        "Make the listener lean in before it starts.",
-    ),
-    (
-        16,
-        "offbeat observation",
-        "Open with a small, funny observation about ordinary life. It does not need to connect to the songs.",
-    ),
-    (
-        12,
-        "micro-rant",
-        "Do a harmless tiny rant about something trivial, like parking lots, app updates, vending machines, office lighting, elevator music, confusing menus, or shrinking bag sizes.",
-    ),
-    (
-        11,
-        "fictional listener message",
-        "Pretend a listener sent a strange but believable message. Keep it brief and clearly playful.",
-    ),
-    (
-        11,
-        "fake station business",
-        "Invent a quick VoidFM station announcement, fake sponsor tease, or studio mishap. Make it satirical and obviously fictional.",
+        "Build genuine anticipation for the next track like a DJ who loves it. Mention one simple thing "
+        "the listener can feel right away: the groove, hook, mood, or first impression.",
     ),
     (
         10,
         "music bridge",
-        "Make a natural, specific bridge from the previous track to the next — a shared mood, contrasting energy, "
-        "or an unexpected sonic link. Sound like you curated this transition on purpose.",
+        "Make a natural bridge from the previous track to the next: shared mood, contrast, tempo, or energy. "
+        "Sound like you curated the segue on purpose.",
     ),
     (
         8,
-        "absurd local bulletin",
-        "Give a tiny fictional local bulletin or public-service aside, then move on like it was normal.",
+        "listener ritual",
+        "Imagine a tiny listening ritual: headphones settling in, a late train window, a desk lamp, a kitchen counter, "
+        "or someone queueing up one more song. Keep it specific and brief.",
+    ),
+    (
+        8,
+        "fictional listener message",
+        "Pretend a listener sent a strange but believable message. Keep it brief, playful, and radio-natural.",
+    ),
+    (
+        8,
+        "fake station business",
+        "Invent a quick VoidFM station announcement, fake sponsor tease, lost-and-found note, or studio mishap. "
+        "Make it obviously fictional, then move on.",
     ),
     (
         7,
+        "sound detail",
+        "Start from one concrete sound detail: a bassline, hi-hat, guitar texture, synth color, vocal entrance, "
+        "or silence before the drop. Use it to point into the next track.",
+    ),
+    (
+        7,
+        "studio snapshot",
+        "Give one quick image from the imaginary studio: meters bouncing, coffee going cold, cables behaving, "
+        "a sticky note on the console, or the playlist screen blinking. Keep it fresh.",
+    ),
+    (
+        6,
+        "micro-rant",
+        "Do a harmless one-sentence rant about a trivial, less-obvious annoyance: overpacked keyrings, mystery remote buttons, "
+        "too many browser tabs, tiny hotel soaps, or unreadable appliance icons.",
+    ),
+    (
+        6,
+        "absurd local bulletin",
+        "Give a tiny fictional local bulletin or public-service aside in one sentence, then move on like it was normal. "
+        "Avoid nearby-animal bits unless the idea is genuinely novel.",
+    ),
+    (
+        6,
         "personal anecdote",
-        "Share a one-sentence DJ anecdote or confession that feels human and a little funny.",
+        "Share a one-sentence DJ anecdote or confession that feels human, light, and a little funny.",
+    ),
+    (
+        5,
+        "record-shelf note",
+        "Make a small record-shelf or playlist-curator observation: sequencing, contrast, a title that catches the eye, "
+        "or the pleasure of finding the right next song.",
+    ),
+    (
+        5,
+        "mini scene",
+        "Paint a tiny scene in one sentence: neon on wet pavement, laundry spinning, elevator lights, a quiet hallway, "
+        "a convenience-store glow, or a room settling down.",
+    ),
+    (
+        4,
+        "playful question",
+        "Ask the listener a playful, low-stakes question or challenge, then immediately turn it toward the next track.",
+    ),
+    (
+        4,
+        "unexpected comparison",
+        "Use one simple, surprising comparison that is easy to understand while half-listening. Do not get poetic or dense.",
     ),
     (
         3,
@@ -247,16 +286,25 @@ _AIRBREAK_BITS: tuple[tuple[int, str, str], ...] = (
     ),
 )
 
+_recent_airbreak_bits: deque[str] = deque(maxlen=4)
+
 
 def _pick_airbreak_bit() -> tuple[str, str]:
-    total = sum(weight for weight, _, _ in _AIRBREAK_BITS)
+    choices = [
+        item for item in _AIRBREAK_BITS
+        if item[1] not in _recent_airbreak_bits
+    ] or list(_AIRBREAK_BITS)
+
+    total = sum(weight for weight, _, _ in choices)
     roll = random.randint(1, total)
     upto = 0
-    for weight, name, instruction in _AIRBREAK_BITS:
+    for weight, name, instruction in choices:
         upto += weight
         if roll <= upto:
+            _recent_airbreak_bits.append(name)
             return name, instruction
-    _, name, instruction = _AIRBREAK_BITS[0]
+    _, name, instruction = choices[0]
+    _recent_airbreak_bits.append(name)
     return name, instruction
 
 
@@ -314,7 +362,10 @@ async def _get_context(cfg: dict) -> str:
     if include_weather:
         parts.append(f"weather: {weather_str}")
 
-    return f"[Optional live context, use rarely: {', '.join(parts)}]"
+    return (
+        f"[Live context — let this inform your TONE silently; do NOT mention the time/date/weather "
+        f"unless the selected bit explicitly calls for local color: {', '.join(parts)}]"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +469,8 @@ def _build(
             f"You are {persona}. {style}\n"
             f"{name_line}{username_line}"
             f"{output_instruction}{style_note_line}\n"
-            "Give a short, natural mid-song radio comment. It may be off-topic. "
+            "Give a short, natural mid-song radio comment that sounds live over music. It may be off-topic, "
+            "but keep it easy to follow. "
             f"Today's bit type: {bit_name}. {bit_instruction} "
             "Always complete your sentences fully. "
             "Output only the talk itself, no preamble.\n\n"
@@ -478,16 +530,20 @@ def _build(
         f"You are {persona}.\n"
         f"{style}\n\n"
         f"The music is currently paused. {output_instruction}{style_note_line}\n"
-        "Think of a satirical open-world game radio station: alive, funny, slightly weird, and not always about music.\n\n"
+        "Think of a real music radio station with a light fictional edge: alive, warm, occasionally funny, "
+        "but always easy to follow between songs.\n\n"
         "## PERFORMANCE STYLE\n"
         f"{pcfg.get('house_rules', '')}\n\n"
         "## CRITICAL RULES\n"
         "- Station Name: The station is 'VoidFM'. Never invent or use another station name.\n"
         "- Endless Stream: This is a continuous 24/7 radio program. Never use sign-offs, goodbyes, 'wrap up', or suggest the show is ending.\n"
-        "- Immersion: The listener is already tuned in. Do NOT say 'Welcome to VoidFM' or use generic greetings like 'Hey there' or 'Hi everyone'. Dive straight into the talk.\n"
+        "- Immersion: The listener is already tuned in. Do NOT open with any greeting — no 'Good morning', 'Good evening', 'Hey there', 'Hi everyone', or 'Welcome to VoidFM'. Dive straight into the talk.\n"
         "- Identity: Do NOT introduce yourself ('This is [DJ name]') unless it feels exceptionally natural in the moment.\n"
-        "- Off-topic is good: You may talk about fictional station life, fake listener messages, tiny complaints, food, traffic, gadgets, urban myths, or absurd local news.\n"
-        "- Music is not the whole point: Do not make every talk a song review. The next-track intro can be just the final sentence.\n"
+        "- DJ flow: This is a spoken break between songs. Keep it rhythmic, clear, and easy to understand on first listen.\n"
+        "- Off-topic is okay in small doses: You may mention fictional station life, fake listener messages, tiny complaints, food, traffic, gadgets, urban myths, or absurd local news.\n"
+        "- Variety: Do not keep returning to app updates, self-checkout machines, nearby animals, vending machines, or the same tiny-complaint pattern unless the selected bit explicitly makes it fresh.\n"
+        "- Music remains the anchor: Do not make every talk a song review, but make the next-track intro feel intentional, not pasted on.\n"
+        "- Simplicity: Prefer plain words, one main image, and clean transitions. Avoid dense analogies or clever paragraphs.\n"
         "- Time/weather restraint: Usually do NOT mention the time, date, or weather. Never default to 'perfect weather/time for music'. Use it only when the selected bit asks for local color.\n"
         "- Continuity: Speak only about the current moment context. Do not mention yesterday or tomorrow.\n"
         "- Safety: Keep jokes playful, fictional, and non-hateful. No slurs, explicit sexual content, real-person defamation, or instructions for wrongdoing.\n"

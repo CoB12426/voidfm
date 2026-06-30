@@ -22,6 +22,14 @@ class TalkEngineTest(unittest.TestCase):
         text = talk_engine.postprocess_talk_text("Coming up next is a bright one")
         self.assertEqual(text, "Coming up next is a bright one.")
 
+    def test_postprocess_removes_unsupported_tts_tags(self) -> None:
+        text = talk_engine.postprocess_talk_text("Tiny studio update [excited]: coffee survived.")
+        self.assertEqual(text, "Tiny studio update: coffee survived.")
+
+    def test_postprocess_keeps_supported_tts_tags(self) -> None:
+        text = talk_engine.postprocess_talk_text("That one woke up the mixer. [Laugh]")
+        self.assertEqual(text, "That one woke up the mixer. [laugh].")
+
     def test_clamp_talk_length_prefers_sentence_boundary(self) -> None:
         source = "First sentence. " + ("Second sentence is too long " * 20)
         text = talk_engine.clamp_talk_length(source, "short")
@@ -64,7 +72,7 @@ class PromptBuilderTest(unittest.TestCase):
             track_history=None,
         )
 
-        self.assertIn("Off-topic is good", prompt)
+        self.assertIn("Off-topic is okay in small doses", prompt)
         self.assertIn("SELECTED AIRBREAK BIT", prompt)
         self.assertIn("Do not make every talk a song review", prompt)
         self.assertIn("Never default to 'perfect weather/time for music'", prompt)
@@ -89,25 +97,25 @@ class TalkLengthTest(unittest.TestCase):
 
     def test_short_length_instruction_in_prompt(self) -> None:
         prompt = self._make_prompt("short")
-        self.assertIn("20–35 words", prompt)
+        self.assertIn("18–30 words", prompt)
 
     def test_medium_length_instruction_in_prompt(self) -> None:
         prompt = self._make_prompt("medium")
-        self.assertIn("50–80 words", prompt)
+        self.assertIn("35–60 words", prompt)
 
     def test_long_length_instruction_in_prompt(self) -> None:
         prompt = self._make_prompt("long")
-        self.assertIn("90–130 words", prompt)
+        self.assertIn("70–100 words", prompt)
 
     def test_clamp_short_at_180_chars(self) -> None:
         long_text = "Word " * 60
         clamped = talk_engine.clamp_talk_length(long_text, "short")
         self.assertLessEqual(len(clamped), 180)
 
-    def test_clamp_long_at_520_chars(self) -> None:
+    def test_clamp_long_at_800_chars(self) -> None:
         long_text = "Word " * 200
         clamped = talk_engine.clamp_talk_length(long_text, "long")
-        self.assertLessEqual(len(clamped), 520)
+        self.assertLessEqual(len(clamped), 800)
 
 
 class PersonalityTest(unittest.TestCase):
@@ -129,24 +137,24 @@ class PersonalityTest(unittest.TestCase):
 
     def test_comedian_persona_in_prompt(self) -> None:
         prompt = self._make_prompt("comedian")
-        self.assertIn("comedy radio DJ", prompt)
-        self.assertIn("stand-up", prompt)
+        self.assertIn("funny music radio DJ", prompt)
+        self.assertIn("The track intro is still the payoff", prompt)
 
     def test_intellectual_persona_in_prompt(self) -> None:
         prompt = self._make_prompt("intellectual")
-        self.assertIn("music critic", prompt)
+        self.assertIn("thoughtful music radio DJ", prompt)
 
     def test_energetic_persona_in_prompt(self) -> None:
         prompt = self._make_prompt("energetic")
-        self.assertIn("high-energy", prompt)
+        self.assertIn("upbeat drive-time", prompt)
 
     def test_chill_persona_in_prompt(self) -> None:
         prompt = self._make_prompt("chill")
-        self.assertIn("mellow", prompt)
+        self.assertIn("mellow late-night", prompt)
 
     def test_standard_persona_in_prompt(self) -> None:
         prompt = self._make_prompt("standard")
-        self.assertIn("charismatic", prompt)
+        self.assertIn("warm music radio DJ", prompt)
 
     def test_unknown_personality_falls_back_to_standard(self) -> None:
         pcfg = prompt_builder._get_personality("nonexistent")
@@ -156,6 +164,18 @@ class PersonalityTest(unittest.TestCase):
         for name, cfg in prompt_builder._PERSONALITIES.items():
             self.assertIn("house_rules", cfg, f"Missing house_rules for personality: {name}")
             self.assertTrue(cfg["house_rules"].strip(), f"Empty house_rules for personality: {name}")
+
+    def test_each_personality_uses_only_supported_tts_tags(self) -> None:
+        supported = {"[sigh]", "[gasp]", "[cough]", "[laugh]", "[whisper]", "[breath]"}
+        for name, cfg in prompt_builder._PERSONALITIES.items():
+            tags = [
+                token.strip()
+                for token in cfg["emotions"].splitlines()
+                if token.strip()
+            ]
+            self.assertTrue(tags, f"No TTS tags for personality: {name}")
+            for tag in tags:
+                self.assertIn(tag, supported, f"Unsupported TTS tag for {name}: {tag}")
 
     def test_album_included_in_track_label(self) -> None:
         track = TrackInfo(title="Karma Police", artist="Radiohead", album="OK Computer")

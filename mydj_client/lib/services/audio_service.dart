@@ -105,6 +105,43 @@ class AudioService {
     }
   }
 
+  /// ジングル（アセット）→ トーク音声（バイト列）をシームレスに再生する。
+  ///
+  /// ConcatenatingAudioSource で 2 つをまとめることで、ジングル完了時に
+  /// AudioFocus が手放されて音楽が一瞬再開するのを防ぐ。
+  Future<void> playJingleThenTalk(
+    String jingleAsset,
+    Uint8List talkBytes, {
+    String contentType = 'audio/mpeg',
+  }) async {
+    debugPrint(
+        'AudioService: playJingleThenTalk — $jingleAsset + ${talkBytes.length} bytes');
+    if (_player.playing) {
+      debugPrint('AudioService: playJingleThenTalk — stopping current playback');
+      await _player.stop();
+    }
+    _loadedAssetPath = null;
+    try {
+      final source = ConcatenatingAudioSource(children: [
+        AudioSource.asset(jingleAsset),
+        _BytesAudioSource(talkBytes, contentType: contentType),
+      ]);
+      await _player.setAudioSource(source);
+      await _player.play();
+      final estimatedSec = (_player.duration?.inSeconds ?? 60) + 20;
+      await _player.playerStateStream
+          .firstWhere((s) => s.processingState == ProcessingState.completed)
+          .timeout(Duration(seconds: estimatedSec), onTimeout: () {
+        debugPrint('AudioService: playJingleThenTalk timeout, stopping');
+        _player.stop();
+        return _player.playerState;
+      });
+      debugPrint('AudioService: playJingleThenTalk done');
+    } catch (e) {
+      debugPrint('AudioService: playJingleThenTalk error: $e');
+    }
+  }
+
   /// DJ トーク音声（MP3 / WAV）を再生する。完了まで await する。
   /// 音楽は事前に pauseMusic() で停止済みであること。
   Future<void> playTalk(Uint8List wavBytes,

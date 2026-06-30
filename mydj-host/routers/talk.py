@@ -6,7 +6,12 @@ import random
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
-from models.schemas import TalkJobCreateResponse, TalkJobStatusResponse, TalkRequest
+from models.schemas import (
+    TalkJobCreateResponse,
+    TalkJobScriptResponse,
+    TalkJobStatusResponse,
+    TalkRequest,
+)
 from config import get_config
 import services.talk_engine as talk_engine
 import services.talk_jobs as talk_jobs
@@ -60,6 +65,17 @@ async def get_talk_job_audio(job_id: str) -> Response:
         media_type=result.content_type,
         headers=result.headers,
     )
+
+
+@router.get("/talk_jobs/{job_id}/script", response_model=TalkJobScriptResponse)
+async def get_talk_job_script(job_id: str) -> TalkJobScriptResponse:
+    text = talk_jobs.script(job_id)
+    if text is None:
+        job = talk_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Talk job not found")
+        raise HTTPException(status_code=409, detail=f"Talk job is {job.status}")
+    return TalkJobScriptResponse(job_id=job_id, text=text)
 
 
 @router.delete("/talk_jobs/{job_id}", response_model=TalkJobStatusResponse)

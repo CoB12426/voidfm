@@ -17,7 +17,7 @@ Ubuntu host (LLM talk generation + Chatterbox TTS synthesis)
 
 ### Step 1
 
-Download `voidfm-android-release.apk` from the GitHub Releases page and install it on your Android device.
+Download apk from the GitHub Releases page and install it on your Android device.
 
 ### Step 2 — Ubuntu Setup
 
@@ -37,6 +37,14 @@ pip install -r mydj-host/requirements.txt
 ```
 
 A CUDA-capable GPU is recommended for reasonable TTS latency.
+
+If an existing environment reports `TorchCodec is required for save_with_torchcodec`
+during TTS, refresh the host dependencies:
+
+```bash
+source voidfm/bin/activate
+pip install -r mydj-host/requirements.txt
+```
 
 ### Step 3 — Configure LLM and TTS
 

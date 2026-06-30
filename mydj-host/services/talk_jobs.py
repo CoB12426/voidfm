@@ -165,6 +165,13 @@ def audio(job_id: str) -> talk_engine.TalkResult | None:
     return job.result
 
 
+def script(job_id: str) -> str | None:
+    result = audio(job_id)
+    if result is None:
+        return None
+    return result.text
+
+
 def status(job: TalkJob) -> TalkJobStatusResponse:
     result = job.result
     return TalkJobStatusResponse(
@@ -182,7 +189,7 @@ def status(job: TalkJob) -> TalkJobStatusResponse:
         tts_time=result.tts_time if result else None,
         total_time=result.total_time if result else None,
         cached=job.cached,
-        preview=result.text[:120] if result else None,
+        preview=result.text if result else None,
     )
 
 

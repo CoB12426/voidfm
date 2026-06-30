@@ -82,7 +82,8 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "getCurrentTrack" -> result.success(getCurrentTrack())
                     "skipToNext"      -> {
-                        MyNotificationListener.markUserSkip()
+                        val userInitiated = call.argument<Boolean>("userInitiated") ?: true
+                        if (userInitiated) MyNotificationListener.markUserSkip()
                         sendMediaCommand("next")
                         result.success(null)
                     }
@@ -107,6 +108,7 @@ class MainActivity : FlutterActivity() {
                         MyNotificationListener.djActive = active
                         if (!active) {
                             MyNotificationListener.holdPlayback = false
+                            MyNotificationListener.trackEndInterventionEnabled = false
                             // DJ OFF 時はバッファ済み通知を解放する
                             val pending = MyNotificationListener.bufferedTrackChange
                             MyNotificationListener.preEndPending = false
@@ -133,6 +135,15 @@ class MainActivity : FlutterActivity() {
                                 }
                             }
                         }
+                        result.success(null)
+                    }
+                    "setTrackEndInterventionEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        MyNotificationListener.trackEndInterventionEnabled = enabled
+                        android.util.Log.d(
+                            "MainActivity",
+                            "trackEndInterventionEnabled=$enabled"
+                        )
                         result.success(null)
                     }
                     "clearPreEndPending" -> {

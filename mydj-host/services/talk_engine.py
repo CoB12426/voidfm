@@ -40,11 +40,30 @@ _CLOSING_PATTERNS: tuple[str, ...] = (
     r"\buntil\s+next\s+time\b",
 )
 
+_SUPPORTED_TTS_TAGS: frozenset[str] = frozenset({
+    "sigh",
+    "gasp",
+    "cough",
+    "laugh",
+    "whisper",
+    "breath",
+})
+_TTS_TAG_PATTERN = re.compile(r"\[([A-Za-z][A-Za-z _-]{0,31})\]")
+
+
+def _filter_tts_tags(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        tag = match.group(1).strip().lower()
+        return f"[{tag}]" if tag in _SUPPORTED_TTS_TAGS else ""
+
+    return re.sub(r"\s+", " ", _TTS_TAG_PATTERN.sub(replace, text)).strip()
+
 
 def postprocess_talk_text(text: str) -> str:
-    t = re.sub(r"\s+", " ", text).strip()
+    t = _filter_tts_tags(text)
     for p in _CLOSING_PATTERNS:
         t = re.sub(p, "", t, flags=re.IGNORECASE).strip(" ,.!?\t\n")
+    t = re.sub(r"\s+([,.!?;:])", r"\1", t).strip()
     if not t:
         return "Here comes the next track."
     if t[-1] not in ".!?":
@@ -56,7 +75,7 @@ def clamp_talk_length(text: str, talk_length: str) -> str:
     limits = {
         "short": 180,
         "medium": 320,
-        "long": 520,
+        "long": 800,
     }
     limit = limits.get(talk_length, 320)
     if len(text) <= limit:

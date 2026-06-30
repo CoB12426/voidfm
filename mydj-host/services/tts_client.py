@@ -149,6 +149,22 @@ def _reference_audio_path(cfg: dict, speaker_override: str | None) -> str | None
     return tts.get("default_ref_audio")
 
 
+def _wav_bytes_from_tensor(wav: object, sample_rate: int) -> bytes:
+    import soundfile as sf
+
+    audio = wav
+    if hasattr(wav, "detach"):
+        tensor = wav.detach().cpu()  # type: ignore[attr-defined]
+        if tensor.ndim == 2:
+            tensor = tensor.transpose(0, 1)
+        audio = tensor.numpy()
+
+    buf = io.BytesIO()
+    sf.write(buf, audio, int(sample_rate), format="WAV")
+    buf.seek(0)
+    return buf.read()
+
+
 def _chatterbox_synthesize_sync(
     model: object,
     text: str,
@@ -158,8 +174,6 @@ def _chatterbox_synthesize_sync(
     cfg_weight: float,
     model_variant: str,
 ) -> bytes:
-    import torchaudio
-
     kwargs: dict = {"exaggeration": exaggeration, "cfg_weight": cfg_weight}
     if ref_audio:
         kwargs["audio_prompt_path"] = ref_audio
@@ -171,10 +185,7 @@ def _chatterbox_synthesize_sync(
         lang = language_id or "en"
         wav = model.generate(text, lang, **kwargs)  # type: ignore[union-attr]
 
-    buf = io.BytesIO()
-    torchaudio.save(buf, wav, model.sr, format="wav")  # type: ignore[union-attr]
-    buf.seek(0)
-    return buf.read()
+    return _wav_bytes_from_tensor(wav, model.sr)  # type: ignore[union-attr]
 
 
 async def _synthesize_chatterbox(
