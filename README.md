@@ -1,9 +1,7 @@
 # voidfm
 
-An experimental app that inserts AI DJ talk into local music playback.
-
-There are bugs/glitches exist.
-
+An experimental app that inserts AI DJ talk into local music playback. \
+There are bugs/glitches exist. \
 The developer tested this system on RTX3060 with 12GB VRAM.
 
 
