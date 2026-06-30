@@ -2,7 +2,7 @@
 
 An experimental app that inserts AI DJ talk into local music playback. \
 There are bugs/glitches exist. \
-The developer tested this system on RTX3060 with 12GB VRAM.
+Tested only on Google Pixel 9 for client and RTX3060 12GB for host (local llm with llama.cpp and TTS generation)
 
 
 https://github.com/user-attachments/assets/b3248831-3243-49ec-8531-66829b471580
