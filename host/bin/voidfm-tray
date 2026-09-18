@@ -1,0 +1,349 @@
+#!/usr/bin/python3
+"""VoidFM host tray icon.
+
+Lives in the desktop panel (AppIndicator) and wraps the `voidfm` CLI so the
+host can be started, stopped and reconfigured without a terminal. Installed as
+/usr/bin/voidfm-tray by the .deb and started at login via XDG autostart.
+
+Uses the distro Python on purpose: PyGObject / AppIndicator come from apt
+(python3-gi, gir1.2-ayatanaappindicator3-0.1), not from the host venv.
+"""
+import fcntl
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import threading
+import urllib.request
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+try:
+    gi.require_version("AyatanaAppIndicator3", "0.1")
+    from gi.repository import AyatanaAppIndicator3 as AppIndicator
+except (ValueError, ImportError):
+    gi.require_version("AppIndicator3", "0.1")
+    from gi.repository import AppIndicator3 as AppIndicator
+from gi.repository import GLib, Gtk  # noqa: E402
+
+SELF = os.path.realpath(__file__)
+BIN_DIR = os.path.dirname(SELF)
+VOIDFM = os.path.join(BIN_DIR, "voidfm")
+HOME = os.path.expanduser("~")
+CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
+CONFIG_FILE = os.path.join(CONFIG_HOME, "voidfm", "config.toml")
+AUTOSTART_NAME = "voidfm-tray.desktop"
+SYSTEM_AUTOSTART = os.path.join("/etc/xdg/autostart", AUTOSTART_NAME)
+USER_AUTOSTART = os.path.join(CONFIG_HOME, "autostart", AUTOSTART_NAME)
+POLL_SECONDS = 5
+
+ICON_CANDIDATES = [
+    "/usr/share/pixmaps/voidfm.png",
+    os.path.join(BIN_DIR, "..", "..", "app", "assets", "icon.png"),  # git checkout
+]
+
+# 状態
+NOT_SET_UP, STOPPED, STARTING, RUNNING, BUSY = range(5)
+STATUS_LABELS = {
+    NOT_SET_UP: "Not set up",
+    STOPPED: "Stopped",
+    STARTING: "Starting… (loading models)",
+    RUNNING: "Running",
+    BUSY: "Working…",
+}
+
+
+# ------------------------------------------------------------------ helpers ---
+def voidfm(*args, timeout=120):
+    return subprocess.run(
+        [VOIDFM, *args],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def notify(summary, body=""):
+    if shutil.which("notify-send"):
+        icon = next((p for p in ICON_CANDIDATES if os.path.isfile(p)), "audio-x-generic")
+        subprocess.Popen(["notify-send", "-a", "VoidFM", "-i", icon, summary, body])
+
+
+def configured_port():
+    """[server] port を読む（Python 3.10 には tomllib がないので正規表現で）。"""
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return 8000
+    section = re.search(r"^\[server\](.*?)(?=^\[|\Z)", text, re.M | re.S)
+    match = section and re.search(r"^port\s*=\s*(\d+)", section.group(1), re.M)
+    return int(match.group(1)) if match else 8000
+
+
+def lan_addresses():
+    try:
+        out = subprocess.run(["hostname", "-I"], capture_output=True, text=True).stdout
+    except OSError:
+        return []
+    addresses = []
+    for ip in out.split():
+        if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", ip):
+            continue
+        if re.match(r"172\.(1[7-9]|2\d|3[01])\.", ip):  # docker bridges
+            continue
+        addresses.append(ip)
+    return addresses
+
+
+def ping(port):
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/ping", timeout=1)
+        return True
+    except Exception:
+        return False
+
+
+def is_set_up():
+    return voidfm("is-ready", timeout=10).returncode == 0
+
+
+def run_in_terminal(command):
+    """対話が必要な操作（初回セットアップ・設定ウィザード）は端末で開く。"""
+    script = f"{command}; echo; read -r -p 'Press Enter to close' _"
+    shell = ["bash", "-c", script]
+    for term, prefix in (
+        ("gnome-terminal", ["--"]),
+        ("ptyxis", ["--"]),
+        ("konsole", ["-e"]),
+        ("xfce4-terminal", ["-x"]),
+        ("x-terminal-emulator", ["-e"]),
+        ("xterm", ["-e"]),
+    ):
+        if shutil.which(term):
+            subprocess.Popen([term, *prefix, *shell])
+            return
+    notify("No terminal found", f"Run this in a terminal: {command}")
+
+
+def systemd_available():
+    return (
+        shutil.which("systemctl") is not None
+        and subprocess.run(
+            ["systemctl", "--user", "show-environment"], capture_output=True
+        ).returncode == 0
+    )
+
+
+def host_autostart_enabled():
+    return subprocess.run(
+        ["systemctl", "--user", "is-enabled", "--quiet", "voidfm.service"]
+    ).returncode == 0
+
+
+def tray_autostart_enabled():
+    if os.path.isfile(USER_AUTOSTART):
+        with open(USER_AUTOSTART, encoding="utf-8") as f:
+            return not re.search(r"^Hidden\s*=\s*true", f.read(), re.M | re.I)
+    return os.path.isfile(SYSTEM_AUTOSTART)
+
+
+def set_tray_autostart(enabled):
+    os.makedirs(os.path.dirname(USER_AUTOSTART), exist_ok=True)
+    if enabled and os.path.isfile(SYSTEM_AUTOSTART):
+        # パッケージ版の自動起動をユーザー側で打ち消していたなら元に戻す
+        if os.path.isfile(USER_AUTOSTART):
+            os.remove(USER_AUTOSTART)
+        return
+    with open(USER_AUTOSTART, "w", encoding="utf-8") as f:
+        f.write(
+            "[Desktop Entry]\nType=Application\nName=VoidFM Host\n"
+            f"Exec={shlex.quote(SELF)}\nIcon=voidfm\n"
+            "X-GNOME-Autostart-enabled=true\n"
+        )
+        if not enabled:
+            f.write("Hidden=true\n")
+
+
+# --------------------------------------------------------------------- tray ---
+class Tray:
+    def __init__(self):
+        icon = next((os.path.abspath(p) for p in ICON_CANDIDATES if os.path.isfile(p)), "audio-x-generic")
+        self.indicator = AppIndicator.Indicator.new(
+            "voidfm-host", icon, AppIndicator.IndicatorCategory.APPLICATION_STATUS
+        )
+        self.indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
+        self.indicator.set_title("VoidFM Host")
+        self.state = STOPPED
+        self.busy = False
+        self.has_systemd = systemd_available()
+        self._syncing = False
+        self._build_menu()
+        self.refresh()
+        GLib.timeout_add_seconds(POLL_SECONDS, self.refresh)
+
+    # ---- menu ----
+    def _item(self, label, callback=None):
+        item = Gtk.MenuItem(label=label)
+        if callback:
+            item.connect("activate", lambda *_: callback())
+        else:
+            item.set_sensitive(False)
+        self.menu.append(item)
+        return item
+
+    def _check(self, label, callback):
+        item = Gtk.CheckMenuItem(label=label)
+        item.connect("toggled", lambda w: None if self._syncing else callback(w.get_active()))
+        self.menu.append(item)
+        return item
+
+    def _separator(self):
+        self.menu.append(Gtk.SeparatorMenuItem())
+
+    def _build_menu(self):
+        self.menu = Gtk.Menu()
+        self.status_item = self._item("VoidFM Host")
+        self.address_items = [self._item("") for _ in range(3)]
+        self._separator()
+        self.start_item = self._item("Start host", self.start)
+        self.stop_item = self._item("Stop host", self.stop)
+        self.restart_item = self._item("Restart (apply config)", self.restart)
+        self._separator()
+        self._item("Setup wizard…", lambda: run_in_terminal(f"{shlex.quote(VOIDFM)} configure"))
+        self._item("Edit config file…", self.edit_config)
+        self._item("Show log…", lambda: run_in_terminal(f"{shlex.quote(VOIDFM)} logs -f"))
+        self._separator()
+        self.host_autostart_item = self._check("Start host at login", self.set_host_autostart)
+        self.tray_autostart_item = self._check("Show this icon at login", set_tray_autostart)
+        self._separator()
+        self._item("Stop host and quit", self.stop_and_quit)
+        self._item("Close icon (keep host running)", Gtk.main_quit)
+        self.menu.show_all()
+        self.indicator.set_menu(self.menu)
+
+    # ---- status polling (subprocess / HTTP are done off the GTK thread) ----
+    def refresh(self):
+        if not self.busy:
+            threading.Thread(target=self._probe, daemon=True).start()
+        return True
+
+    def _probe(self):
+        if not is_set_up():
+            state = NOT_SET_UP
+        elif voidfm("is-running", timeout=10).returncode != 0:
+            state = STOPPED
+        else:
+            state = RUNNING if ping(configured_port()) else STARTING
+        host_autostart = self.has_systemd and host_autostart_enabled()
+        GLib.idle_add(self._apply, state, host_autostart)
+
+    def _apply(self, state, host_autostart):
+        if self.busy:
+            return False
+        self.state = state
+        self.status_item.set_label(f"VoidFM Host — {STATUS_LABELS[state]}")
+        addresses = lan_addresses() if state == RUNNING else []
+        port = configured_port()
+        for i, item in enumerate(self.address_items):
+            if i < len(addresses):
+                item.set_label(f"Connect to  {addresses[i]} : {port}")
+                item.show()
+            else:
+                item.hide()
+        active = state in (RUNNING, STARTING)
+        self.start_item.set_sensitive(not active)
+        self.stop_item.set_sensitive(active)
+        self.restart_item.set_sensitive(active)
+        self._syncing = True
+        self.host_autostart_item.set_visible(self.has_systemd)
+        self.host_autostart_item.set_active(host_autostart)
+        self.tray_autostart_item.set_active(tray_autostart_enabled())
+        self._syncing = False
+        return False
+
+    def _set_busy(self, label):
+        self.busy = True
+        self.status_item.set_label(f"VoidFM Host — {label}")
+        for item in (self.start_item, self.stop_item, self.restart_item):
+            item.set_sensitive(False)
+
+    def _run_async(self, label, args, done_title, then=None):
+        self._set_busy(label)
+
+        def work():
+            try:
+                result = voidfm(*args)
+                ok, output = result.returncode == 0, result.stdout
+            except subprocess.TimeoutExpired:
+                ok, output = False, "Timed out"
+            GLib.idle_add(finish, ok, output)
+
+        def finish(ok, output):
+            self.busy = False
+            tail = "\n".join(re.sub(r"\x1b\[[0-9;]*m", "", output).strip().splitlines()[-3:])
+            notify(done_title if ok else "VoidFM Host: failed", tail)
+            self.refresh()
+            if then:
+                then()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    # ---- actions ----
+    def start(self):
+        if self.state == NOT_SET_UP:
+            # 初回は依存パッケージのインストールと設定の質問があるので端末で
+            run_in_terminal(f"{shlex.quote(VOIDFM)} start")
+            return
+        self._run_async("Starting…", ["start"], "VoidFM Host started")
+
+    def stop(self):
+        self._run_async("Stopping…", ["stop"], "VoidFM Host stopped")
+
+    def restart(self):
+        self._run_async("Restarting…", ["restart"], "VoidFM Host restarted")
+
+    def stop_and_quit(self):
+        self._run_async("Stopping…", ["stop"], "VoidFM Host stopped", then=Gtk.main_quit)
+
+    def edit_config(self):
+        if not os.path.isfile(CONFIG_FILE):
+            run_in_terminal(f"{shlex.quote(VOIDFM)} configure")
+            return
+        subprocess.Popen(["xdg-open", CONFIG_FILE])
+        notify("Config file opened", "After saving, choose \"Restart (apply config)\" from the menu to apply it.")
+
+    def set_host_autostart(self, enabled):
+        if enabled and self.state == NOT_SET_UP:
+            run_in_terminal(f"{shlex.quote(VOIDFM)} enable")
+            return
+        self._run_async(
+            "Applying…",
+            ["enable" if enabled else "disable"],
+            "Autostart enabled" if enabled else "Autostart disabled",
+        )
+
+
+def main():
+    # 二重起動するとアイコンが並ぶので、1 セッション 1 つに限る
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/voidfm-{os.getuid()}"
+    os.makedirs(runtime, exist_ok=True)
+    lock = open(os.path.join(runtime, "voidfm-tray.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        notify("VoidFM Host", "The tray icon is already shown.")
+        return 0
+    Tray()
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,67 @@
+# ---- OS / Editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+/voidfm/
+.pytest_cache/
+.mypy_cache/
+
+# ---- Flutter / Android (app/) ----
+app/.dart_tool/
+app/.packages
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/android/.gradle/
+app/android/.kotlin/
+app/android/local.properties
+app/android/app/debug/
+app/android/app/profile/
+app/android/app/release/
+app/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
+# ---- Packaging output ----
+dist/
+
+# ---- Logs ----
+*.log
+logs/
+.logs/
+
+# ---- Local configs / secrets ----
+host/config.toml
+*.local.toml
+.env
+.env.*
+
+# ---- Large model/artifact files (not for Git) ----
+*.gguf
+*.safetensors
+*.pt
+*.pth
+*.bin
+tokenizer.json
+models/
+!app/lib/models/
+!host/models/
+checkpoints/
+
+# ---- Optional caches ----
+.cache/
+
+# ---- Memo ----
+SIDEPROJECT_POST_TEMPLATE_ja.md
+RELEASE_CHECKLIST.md
+voidfm-client-spec.md
+voidfm-host-spec.md

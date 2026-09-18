@@ -1,0 +1,318 @@
+import 'dart:typed_data';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../models/track_info.dart';
+import '../models/host_config.dart';
+import '../models/dj_preferences.dart';
+import 'dj_backend.dart';
+
+class TalkJobStatus {
+  final String jobId;
+  final String status;
+  final String? error;
+  final double? llmTime;
+  final double? ttsTime;
+  final double? totalTime;
+  final int? audioBytes;
+  final bool cached;
+  final String? preview;
+
+  const TalkJobStatus({
+    required this.jobId,
+    required this.status,
+    this.error,
+    this.llmTime,
+    this.ttsTime,
+    this.totalTime,
+    this.audioBytes,
+    this.cached = false,
+    this.preview,
+  });
+
+  factory TalkJobStatus.fromJson(Map<String, dynamic> json) => TalkJobStatus(
+        jobId: json['job_id'] as String,
+        status: json['status'] as String,
+        error: json['error'] as String?,
+        llmTime: (json['llm_time'] as num?)?.toDouble(),
+        ttsTime: (json['tts_time'] as num?)?.toDouble(),
+        totalTime: (json['total_time'] as num?)?.toDouble(),
+        audioBytes: json['audio_bytes'] as int?,
+        cached: json['cached'] as bool? ?? false,
+        preview: json['preview'] as String?,
+      );
+}
+
+/// PC 上の VoidFM ホストへ HTTP で接続するバックエンド。
+class RemoteHostClient extends DjBackend {
+  final String hostAddress;
+  final int port;
+
+  /// トーク / Station ID 取得に使うクライアント。[cancel] で close して中断する。
+  final http.Client _client;
+
+  RemoteHostClient({
+    required this.hostAddress,
+    required this.port,
+    http.Client? client,
+  }) : _client = client ?? http.Client();
+
+  String? _activeTalkJobId;
+  bool _cancelRequested = false;
+
+  Uri _uri(String path) => Uri.parse('http://$hostAddress:$port$path');
+
+  bool _isValidTrack(TrackInfo t) {
+    return t.title.trim().isNotEmpty && t.artist.trim().isNotEmpty;
+  }
+
+  /// GET /ping — 疎通確認。成功なら true。
+  @override
+  Future<bool> ping() async {
+    final client = http.Client();
+    try {
+      final response =
+          await client.get(_uri('/ping')).timeout(const Duration(seconds: 5));
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// GET /config — サーバー設定を取得。
+  Future<HostConfig> fetchConfig() async {
+    final client = http.Client();
+    try {
+      final response = await client
+          .get(_uri('/config'))
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        throw Exception('fetchConfig failed: ${response.statusCode}');
+      }
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return HostConfig.fromJson(json);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// POST /talk_jobs — DJ トーク音声と台本テキストを取得。
+  @override
+  Future<TalkFetchResult> fetchTalk({
+    required TrackInfo nextTrack,
+    TrackInfo? previousTrack,
+    required DjPreferences preferences,
+    List<TrackInfo> trackHistory = const [],
+  }) async {
+    if (!_isValidTrack(nextTrack)) {
+      throw Exception(
+          'fetchTalk aborted: invalid nextTrack (empty title/artist)');
+    }
+
+    final safePreviousTrack =
+        (previousTrack != null && _isValidTrack(previousTrack))
+            ? previousTrack
+            : null;
+    final safeTrackHistory = trackHistory.where(_isValidTrack).toList();
+
+    final body = jsonEncode({
+      'next_track': nextTrack.toJson(),
+      if (safePreviousTrack != null)
+        'previous_track': safePreviousTrack.toJson(),
+      'preferences': preferences.toJson(),
+      if (safeTrackHistory.isNotEmpty)
+        'track_history': safeTrackHistory.map((t) => t.toJson()).toList(),
+    });
+
+    return _fetchTalkJob(body);
+  }
+
+  Future<TalkFetchResult> _fetchTalkJob(String body) async {
+    final client = _client;
+    _cancelRequested = false;
+    String? jobId;
+
+    try {
+      final createResponse = await client
+          .post(
+            _uri('/talk_jobs'),
+            headers: {'Content-Type': 'application/json'},
+            body: body,
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (createResponse.statusCode == 404 ||
+          createResponse.statusCode == 405) {
+        return await _fetchTalkLegacy(client, body);
+      }
+      if (createResponse.statusCode != 200) {
+        final detail = _extractDetail(createResponse.body);
+        throw Exception(
+            'createTalkJob failed (${createResponse.statusCode}): $detail');
+      }
+
+      final createJson =
+          jsonDecode(createResponse.body) as Map<String, dynamic>;
+      jobId = createJson['job_id'] as String;
+      _activeTalkJobId = jobId;
+
+      while (true) {
+        if (_cancelRequested) {
+          throw Exception('fetchTalk cancelled');
+        }
+
+        final status = await _fetchTalkJobStatus(client, jobId);
+        if (status.status == 'succeeded') {
+          final audio = await client
+              .get(_uri('/talk_jobs/$jobId/audio'))
+              .timeout(const Duration(minutes: 2));
+          if (audio.statusCode != 200) {
+            final detail = _extractDetail(audio.body);
+            throw Exception(
+                'fetchTalk audio failed (${audio.statusCode}): $detail');
+          }
+          if (status.totalTime != null) {
+            print(
+              'RemoteHostClient: job $jobId done ${status.totalTime!.toStringAsFixed(2)} s '
+              '(LLM: ${status.llmTime?.toStringAsFixed(2)} s, '
+              'TTS: ${status.ttsTime?.toStringAsFixed(2)} s, '
+              'cached: ${status.cached})',
+            );
+          }
+          final script = await _fetchTalkJobScript(client, jobId)
+                  .catchError((_) => null) ??
+              status.preview;
+          return TalkFetchResult(audio: audio.bodyBytes, script: script);
+        }
+
+        if (status.status == 'failed' || status.status == 'cancelled') {
+          throw Exception(
+              'fetchTalk job ${status.status}: ${status.error ?? jobId}');
+        }
+
+        await Future.delayed(const Duration(milliseconds: 750));
+      }
+    } finally {
+      if (_activeTalkJobId == jobId) _activeTalkJobId = null;
+    }
+  }
+
+  Future<TalkJobStatus> _fetchTalkJobStatus(
+      http.Client client, String jobId) async {
+    final response = await client
+        .get(_uri('/talk_jobs/$jobId'))
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      final detail = _extractDetail(response.body);
+      throw Exception(
+          'fetchTalk status failed (${response.statusCode}): $detail');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return TalkJobStatus.fromJson(json);
+  }
+
+  Future<String?> _fetchTalkJobScript(http.Client client, String jobId) async {
+    final response = await client
+        .get(_uri('/talk_jobs/$jobId/script'))
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) return null;
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return json['text'] as String?;
+  }
+
+  Future<TalkFetchResult> _fetchTalkLegacy(
+      http.Client client, String body) async {
+    final response = await client
+        .post(
+          _uri('/talk'),
+          headers: {'Content-Type': 'application/json'},
+          body: body,
+        )
+        .timeout(const Duration(minutes: 10));
+
+    if (response.statusCode != 200) {
+      final detail = _extractDetail(response.body);
+      throw Exception('fetchTalk failed (${response.statusCode}): $detail');
+    }
+
+    final llmTime = response.headers['x-voidfm-llm-time'];
+    final ttsTime = response.headers['x-voidfm-tts-time'];
+    final totalTime = response.headers['x-voidfm-total-time'];
+    if (totalTime != null) {
+      print(
+          'RemoteHostClient: Generation took $totalTime s (LLM: $llmTime s, TTS: $ttsTime s)');
+    }
+
+    return TalkFetchResult(audio: response.bodyBytes, script: null);
+  }
+
+  /// ホスト側ジョブを取り消し、進行中の HTTP リクエストを中断する。
+  @override
+  Future<void> cancel() async {
+    _cancelRequested = true;
+    final jobId = _activeTalkJobId;
+    _client.close();
+    if (jobId == null) return;
+
+    final client = http.Client();
+    try {
+      await client
+          .delete(_uri('/talk_jobs/$jobId'))
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {
+      // Best-effort: the local HTTP client may already be closed during cancellation.
+    } finally {
+      client.close();
+    }
+  }
+
+  /// POST /voice_preview — 話者サンプル音声を取得。
+  Future<Uint8List> fetchVoicePreview(String speaker) async {
+    final client = http.Client();
+    try {
+      final response = await client
+          .post(
+            _uri('/voice_preview'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'speaker': speaker}),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200) {
+        final detail = _extractDetail(response.body);
+        throw Exception(
+            'fetchVoicePreview failed (${response.statusCode}): $detail');
+      }
+      return response.bodyBytes;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// GET /station_id — ステーションIDの音声を取得。
+  @override
+  Future<Uint8List> fetchStationId({required DjPreferences preferences}) async {
+    final response = await _client
+        .get(_uri('/station_id'))
+        .timeout(const Duration(seconds: 30));
+    if (response.statusCode != 200) {
+      final detail = _extractDetail(response.body);
+      throw Exception(
+          'fetchStationId failed (${response.statusCode}): $detail');
+    }
+    return response.bodyBytes;
+  }
+
+  @override
+  void close() => _client.close();
+
+  String _extractDetail(String body) {
+    try {
+      final json = jsonDecode(body) as Map<String, dynamic>;
+      return json['detail']?.toString() ?? body;
+    } catch (_) {
+      return body;
+    }
+  }
+}

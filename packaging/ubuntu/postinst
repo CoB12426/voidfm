@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+  cat <<'MSG'
+
+VoidFM host was installed.
+Run the following as your normal user (not root) to set up and start it:
+
+    voidfm start
+
+Or open "VoidFM Host" from the app grid: a panel icon appears (and from
+the next login it starts automatically) with start / stop / settings.
+
+The first run creates a Python environment in ~/.local/share/voidfm
+and downloads PyTorch / Chatterbox TTS (several GB).
+MSG
+fi
+exit 0

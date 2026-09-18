@@ -1,0 +1,459 @@
+#!/usr/bin/env bash
+# VoidFM host launcher.
+#
+# Installed as /usr/bin/voidfm by the .deb package, and also usable straight
+# from a git checkout (host/bin/voidfm). Per-user state lives in XDG dirs:
+#   config : ~/.config/voidfm/config.toml (+ optional ~/.config/voidfm/env)
+#   venv   : ~/.local/share/voidfm/venv
+set -euo pipefail
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+HOST_DIR="${VOIDFM_HOST_DIR:-$(cd "$(dirname "$SELF")/.." && pwd)}"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/voidfm"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/voidfm"
+CONFIG_FILE="$CONFIG_DIR/config.toml"
+ENV_FILE="$CONFIG_DIR/env"
+VENV="$DATA_DIR/venv"
+VENV_PY="$VENV/bin/python"
+LOG_FILE="$DATA_DIR/voidfm.log"
+PID_FILE="$DATA_DIR/voidfm.pid"
+UNIT=voidfm.service
+PACKAGED_UNIT=/usr/lib/systemd/user/$UNIT
+USER_UNIT="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UNIT"
+
+# ---------------------------------------------------------------- output ---
+if [[ -t 1 ]]; then
+  C_OK=$'\e[32m' C_WARN=$'\e[33m' C_ERR=$'\e[31m' C_DIM=$'\e[2m' C_B=$'\e[1m' C_0=$'\e[0m'
+else
+  C_OK='' C_WARN='' C_ERR='' C_DIM='' C_B='' C_0=''
+fi
+info() { echo "${C_DIM}==>${C_0} $*"; }
+ok()   { echo "${C_OK}✔${C_0} $*"; }
+warn() { echo "${C_WARN}!${C_0} $*" >&2; }
+die()  { echo "${C_ERR}✘${C_0} $*" >&2; exit 1; }
+
+ask() { # ask "question" default -> echoes answer
+  local reply hint=""
+  [[ -n "$2" ]] && hint=" ${C_DIM}[$2]${C_0}"
+  read -r -p "$1$hint " reply </dev/tty || true
+  echo "${reply:-$2}"
+}
+confirm() { # confirm "question" (default no)
+  local reply
+  read -r -p "$1 [y/N] " reply </dev/tty || true
+  [[ "$reply" =~ ^[Yy] ]]
+}
+
+usage() {
+  cat <<EOF
+${C_B}VoidFM host${C_0} — AI DJ talk server for the VoidFM Android app
+
+Usage: voidfm <command>
+
+  start        Set up on first run, then start the host in the background
+  stop         Stop the host
+  restart      Restart the host (after editing the config)
+  status       Show whether the host is running and how to connect
+  logs [-f]    Show the host log (-f to follow)
+  enable       Start the host automatically when you log in
+  disable      Turn off automatic start
+  tray         Show the panel icon (start/stop/settings from the desktop)
+
+  setup        Create the Python environment and install dependencies
+  configure    Re-run the configuration wizard (LLM / TTS / port)
+  config       Open the config file in \$EDITOR
+  run          Run the host in the foreground (used by systemd)
+  uninstall    Remove this user's VoidFM environment (keeps the config)
+
+Environment:
+  VOIDFM_NO_SYSTEMD=1  Manage the host as a plain background process
+
+Files:
+  config  $CONFIG_FILE
+  env     $ENV_FILE  (e.g. OPENAI_API_KEY=...)
+  venv    $VENV
+EOF
+}
+
+# ------------------------------------------------------------ environment ---
+find_python() {
+  local py
+  for py in python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "$py" >/dev/null 2>&1 &&
+      "$py" -c 'import sys; sys.exit(not ((3, 10) <= sys.version_info[:2] < (3, 14)))' 2>/dev/null; then
+      echo "$py"
+      return
+    fi
+  done
+  die "Python 3.10–3.13 not found. Run: sudo apt install python3 python3-venv"
+}
+
+requirements_hash() {
+  sha256sum "$HOST_DIR/requirements.txt" | cut -d' ' -f1
+}
+
+venv_ready() {
+  [[ -x "$VENV_PY" && -f "$VENV/.voidfm-requirements" ]] &&
+    [[ "$(cat "$VENV/.voidfm-requirements")" == "$(requirements_hash)" ]]
+}
+
+cmd_setup() {
+  local force="${1:-}"
+  mkdir -p "$DATA_DIR"
+  if [[ "$force" != "--force" ]] && venv_ready; then
+    ok "Python environment is already set up ($VENV)"
+  else
+    if [[ ! -x "$VENV_PY" ]]; then
+      local py
+      py="$(find_python)"
+      info "Creating Python environment ($("$py" --version))"
+      "$py" -m venv "$VENV" ||
+        die "Could not create venv. Run: sudo apt install python3-venv"
+    fi
+    info "Installing dependencies (includes PyTorch, so the first run downloads several GB)"
+    "$VENV_PY" -m pip install --upgrade pip wheel >/dev/null
+    "$VENV_PY" -m pip install -r "$HOST_DIR/requirements.txt"
+    requirements_hash >"$VENV/.voidfm-requirements"
+    ok "Dependencies installed"
+  fi
+  [[ -f "$CONFIG_FILE" ]] || cmd_configure
+}
+
+# ----------------------------------------------------------------- config ---
+detect_cuda_device() {
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    echo 0
+  else
+    echo -1
+  fi
+}
+
+ensure_ollama_model() {
+  local model="$1"
+  if ! command -v ollama >/dev/null 2>&1; then
+    warn "Ollama is not installed."
+    if confirm "Install Ollama with the official script (https://ollama.com/install.sh)? (requires sudo)"; then
+      curl -fsSL https://ollama.com/install.sh | sh
+    else
+      warn "Install Ollama, then run 'ollama pull $model'."
+      return
+    fi
+  fi
+  info "Pulling Ollama model $model"
+  ollama pull "$model" || warn "'ollama pull $model' failed. Run it manually later."
+}
+
+sed_repl() { # escape a string for use as a sed s||| replacement
+  printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'
+}
+
+toml_str() { # quoted TOML basic string, escaped for a sed replacement
+  local v="${1//\\/\\\\}"
+  v="${v//\"/\\\"}"
+  sed_repl "\"$v\""
+}
+
+cmd_configure() {
+  mkdir -p "$CONFIG_DIR"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    confirm "Overwrite existing config $CONFIG_FILE?" || return 0
+    cp "$CONFIG_FILE" "$CONFIG_FILE.bak"
+    info "Saved the previous config to $CONFIG_FILE.bak"
+  fi
+
+  echo
+  echo "${C_B}VoidFM host configuration${C_0}"
+  echo
+  echo "Choose the LLM that generates DJ talk:"
+  echo "  1) Ollama on this PC (installs it if missing)"
+  echo "  2) A running OpenAI-compatible server (llama.cpp / LM Studio, etc.)"
+  echo "  3) OpenAI API"
+  local choice base_url api_key model thinking_off=0
+  choice="$(ask "Number" 1)"
+  case "$choice" in
+    1)
+      model="$(ask "Ollama model name" "gemma3:4b")"
+      base_url="http://localhost:11434/v1"
+      api_key="ollama"
+      ensure_ollama_model "$model"
+      ;;
+    2)
+      base_url="$(ask "Server URL (including /v1)" "http://localhost:8080/v1")"
+      api_key="$(ask "API key (leave empty if not needed)" "")"
+      model="$(ask "Model name (auto = first model the server reports)" "auto")"
+      if confirm "Disable thinking output for reasoning models (Qwen3, etc.)? (for llama.cpp)"; then
+        thinking_off=1
+      fi
+      ;;
+    3)
+      base_url="https://api.openai.com/v1"
+      model="$(ask "Model name" "gpt-4o-mini")"
+      local key
+      read -r -s -p "OpenAI API key (saved to $ENV_FILE): " key </dev/tty || true
+      echo
+      if [[ -n "$key" ]]; then
+        touch "$ENV_FILE"
+        chmod 600 "$ENV_FILE"
+        grep -v '^OPENAI_API_KEY=' "$ENV_FILE" >"$ENV_FILE.tmp" || true
+        echo "OPENAI_API_KEY=$key" >>"$ENV_FILE.tmp"
+        mv "$ENV_FILE.tmp" "$ENV_FILE"
+      fi
+      api_key="env:OPENAI_API_KEY"
+      ;;
+    *) die "Please choose 1–3" ;;
+  esac
+
+  local cuda port
+  cuda="$(detect_cuda_device)"
+  if [[ "$cuda" == "-1" ]]; then
+    warn "No NVIDIA GPU found; speech will be synthesized on CPU (slower)."
+  else
+    ok "NVIDIA GPU detected (cuda_device = 0)"
+  fi
+  port="$(ask "Listen port" 8000)"
+
+  [[ "$port" =~ ^[0-9]+$ ]] || die "Invalid port number: $port"
+  local thinking_line='# chat_template_kwargs = { enable_thinking = false }'
+  [[ "$thinking_off" == 1 ]] && thinking_line="${thinking_line#\# }"
+  sed \
+    -e "s|^base_url = .*|base_url = $(toml_str "$base_url")|" \
+    -e "s|^api_key = .*|api_key = $(toml_str "$api_key")|" \
+    -e "s|^default_model = .*|default_model = $(toml_str "$model")|" \
+    -e "s|^port = .*|port = $port|" \
+    -e "s|^cuda_device = [-0-9]*|cuda_device = $cuda|" \
+    -e "s|^# chat_template_kwargs = .*|$(sed_repl "$thinking_line")|" \
+    "$HOST_DIR/config.toml.example" >"$CONFIG_FILE"
+  ok "Config saved: $CONFIG_FILE"
+  echo "${C_DIM}  Edit advanced settings such as voice cloning with 'voidfm config'.${C_0}"
+  if is_running; then
+    info "Restarting to apply the new config"
+    cmd_restart
+  fi
+}
+
+cmd_config() {
+  [[ -f "$CONFIG_FILE" ]] || cmd_configure
+  "${EDITOR:-${VISUAL:-nano}}" "$CONFIG_FILE"
+  if is_running && confirm "Restart to apply the config?"; then
+    cmd_restart
+  fi
+}
+
+config_value() { # config_value section key default
+  "$VENV_PY" - "$CONFIG_FILE" "$1" "$2" "$3" <<'PY' 2>/dev/null || echo "$3"
+import sys
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+with open(sys.argv[1], "rb") as f:
+    cfg = tomllib.load(f)
+print(cfg.get(sys.argv[2], {}).get(sys.argv[3], sys.argv[4]))
+PY
+}
+
+# ---------------------------------------------------------------- service ---
+have_systemd() {
+  [[ -z "${VOIDFM_NO_SYSTEMD:-}" ]] &&
+    command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
+}
+
+ensure_unit() {
+  # The .deb ships the unit; a git checkout gets one generated per user.
+  [[ -f "$PACKAGED_UNIT" ]] && return
+  mkdir -p "$(dirname "$USER_UNIT")"
+  cat >"$USER_UNIT" <<EOF
+[Unit]
+Description=VoidFM host (AI DJ talk server)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=$SELF run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+  systemctl --user daemon-reload
+}
+
+is_running() {
+  if have_systemd; then
+    systemctl --user is-active --quiet "$UNIT"
+  else
+    [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+  fi
+}
+
+ensure_ready() {
+  venv_ready || cmd_setup
+  [[ -f "$CONFIG_FILE" ]] || cmd_configure
+}
+
+cmd_run() {
+  [[ -x "$VENV_PY" ]] || die "Python environment not found. Run 'voidfm setup'."
+  [[ -f "$CONFIG_FILE" ]] || die "$CONFIG_FILE not found. Run 'voidfm configure'."
+  if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+  fi
+  export VOIDFM_CONFIG="$CONFIG_FILE" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+  cd "$HOST_DIR"
+  exec "$VENV_PY" main.py
+}
+
+wait_for_ping() {
+  local port="$1" i
+  for i in $(seq 1 60); do
+    if "$VENV_PY" -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:$port/ping', timeout=1)" 2>/dev/null; then
+      return 0
+    fi
+    is_running || return 1
+    sleep 1
+  done
+  return 1
+}
+
+cmd_start() {
+  ensure_ready
+  if is_running; then
+    ok "VoidFM host is already running"
+  else
+    info "Starting VoidFM host"
+    if have_systemd; then
+      ensure_unit
+      systemctl --user start "$UNIT"
+    else
+      mkdir -p "$DATA_DIR"
+      nohup "$SELF" run >"$LOG_FILE" 2>&1 &
+      echo $! >"$PID_FILE"
+    fi
+    local port
+    port="$(config_value server port 8000)"
+    if ! wait_for_ping "$port"; then
+      warn "The host is not responding. Check the log:"
+      cmd_logs | tail -n 20 >&2
+      exit 1
+    fi
+    ok "Started"
+    echo "${C_DIM}  The first start takes a few minutes to download and load the TTS model (watch with voidfm logs -f).${C_0}"
+  fi
+  print_connection
+}
+
+cmd_stop() {
+  if have_systemd; then
+    systemctl --user stop "$UNIT" 2>/dev/null || true
+  fi
+  if [[ -f "$PID_FILE" ]]; then
+    kill "$(cat "$PID_FILE")" 2>/dev/null || true
+    rm -f "$PID_FILE"
+  fi
+  ok "Stopped"
+}
+
+cmd_restart() {
+  cmd_stop
+  cmd_start
+}
+
+cmd_status() {
+  if is_running; then
+    ok "VoidFM host is running"
+    print_connection
+  else
+    warn "VoidFM host is stopped (start it with voidfm start)"
+    return 3
+  fi
+}
+
+cmd_logs() {
+  if have_systemd && [[ -f "$PACKAGED_UNIT" || -f "$USER_UNIT" ]]; then
+    journalctl --user -u "$UNIT" --no-hostname -o cat -n 200 "$@"
+  elif [[ -f "$LOG_FILE" ]]; then
+    if [[ "${1:-}" == "-f" ]]; then tail -n 200 -f "$LOG_FILE"; else tail -n 200 "$LOG_FILE"; fi
+  else
+    warn "No logs yet"
+  fi
+}
+
+cmd_enable() {
+  have_systemd || die "systemd user session is not available"
+  ensure_ready
+  ensure_unit
+  systemctl --user enable --now "$UNIT"
+  ok "The host will now start automatically when you log in"
+  if [[ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != "yes" ]]; then
+    echo "${C_DIM}  To start it even when you are not logged in: sudo loginctl enable-linger $USER${C_0}"
+  fi
+}
+
+cmd_disable() {
+  have_systemd || die "systemd user session is not available"
+  systemctl --user disable "$UNIT"
+  ok "Automatic start disabled"
+}
+
+cmd_uninstall() {
+  confirm "Delete $VENV and $DATA_DIR? (the config in $CONFIG_DIR is kept)" || return 0
+  if have_systemd; then
+    systemctl --user disable --now "$UNIT" 2>/dev/null || true
+    if [[ -f "$USER_UNIT" ]]; then
+      rm -f "$USER_UNIT"
+      systemctl --user daemon-reload
+    fi
+  fi
+  cmd_stop >/dev/null
+  rm -rf "$DATA_DIR"
+  ok "Removed"
+}
+
+print_connection() {
+  local port ip label
+  port="$(config_value server port 8000)"
+  echo
+  echo "${C_B}Enter this in the Android app under Settings → Remote:${C_0}"
+  for ip in $(hostname -I 2>/dev/null); do
+    [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    case "$ip" in
+      172.1[7-9].* | 172.2[0-9].* | 172.3[01].*) continue ;; # docker bridges
+      100.*) label="Tailscale / VPN" ;;
+      *) label="same Wi-Fi / LAN" ;;
+    esac
+    echo "  Address: $ip   Port: $port   ${C_DIM}($label)${C_0}"
+  done
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+    echo "${C_DIM}  ufw is active; allow the port with: sudo ufw allow $port/tcp${C_0}"
+  fi
+}
+
+# ------------------------------------------------------------------- main ---
+[[ $EUID -eq 0 && -z "${VOIDFM_ALLOW_ROOT:-}" ]] &&
+  die "Run voidfm as a regular user (sudo is not needed)"
+
+cmd="${1:-help}"
+shift || true
+case "$cmd" in
+  start) cmd_start ;;
+  stop) cmd_stop ;;
+  restart) cmd_restart ;;
+  status) cmd_status ;;
+  logs) cmd_logs "$@" ;;
+  enable) cmd_enable ;;
+  disable) cmd_disable ;;
+  setup) cmd_setup "$@" ;;
+  configure) cmd_configure ;;
+  config) cmd_config ;;
+  run) cmd_run ;;
+  tray) exec "$(dirname "$SELF")/voidfm-tray" ;;
+  # quiet checks used by voidfm-tray (exit code only)
+  is-running) is_running ;;
+  is-ready) venv_ready && [[ -f "$CONFIG_FILE" ]] ;;
+  uninstall) cmd_uninstall ;;
+  help | -h | --help) usage ;;
+  *) usage >&2; exit 1 ;;
+esac

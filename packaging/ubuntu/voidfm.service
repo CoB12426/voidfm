@@ -1,0 +1,13 @@
+[Unit]
+Description=VoidFM host (AI DJ talk server)
+Documentation=https://github.com/CoB12426/voidfm
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/voidfm run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=VoidFM Host
+Comment=Start, stop and configure the VoidFM host from the panel
+Exec=voidfm-tray
+Icon=voidfm
+Terminal=false
+Categories=AudioVideo;Audio;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5

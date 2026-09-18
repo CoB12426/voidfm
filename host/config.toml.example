@@ -1,0 +1,51 @@
+[server]
+port = 8000
+host = "0.0.0.0"
+
+[llm]
+# OpenAI-compatible Chat Completions API.
+# Examples:
+#   OpenAI:      base_url = "https://api.openai.com/v1"
+#   LM Studio:   base_url = "http://localhost:1234/v1"
+#   Ollama v1:   base_url = "http://localhost:11434/v1"
+provider = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+api_key = "env:OPENAI_API_KEY"
+# "auto" follows the first model reported by /v1/models, useful for llama.cpp.
+# Set a concrete name such as "gpt-4o-mini" if your provider requires it.
+default_model = "auto"
+temperature = 0.7
+max_tokens = 220
+# llama.cpp thinking models: ask the chat template to emit final text in content.
+# chat_template_kwargs = { enable_thinking = false }
+
+# Legacy Ollama API mode:
+# provider = "ollama"
+# ollama_url = "http://localhost:11434"
+# default_model = "llama3.2:1b"
+# keep_alive = "10m"
+
+[tts]
+# chatterbox_model:
+#   "turbo"        — low latency (recommended)
+#   "multilingual" — larger multilingual model (talk is still English only)
+chatterbox_model = "turbo"
+cuda_device = 0          # CUDA GPU index (-1 = CPU only)
+audio_format = "wav"
+
+# 感情表現の強さ（0.0〜1.0+、デフォルト 0.5）
+exaggeration = 0.5
+# 話者一致度（デフォルト 0.5、低いほど自然な話速）
+cfg_weight = 0.5
+
+# ボイスクローン: 5〜30 秒の参照音声ファイルを指定する
+# ※ 文字起こしテキストは不要
+# default_ref_audio = "voices/default.wav"
+
+# 複数の声を登録してアプリから選択可能にする場合:
+# [tts.voices]
+# nova  = "voices/nova.wav"
+# atlas = "voices/atlas.wav"
+
+[dj]
+default_talk_length = "medium"   # short / medium / long

@@ -1,0 +1,72 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Test
+        run: flutter test
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voidfm-release-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+
+  host-deb:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Host unit tests
+        run: |
+          python3 -m pip install --quiet pydantic httpx fastapi
+          python3 -m unittest discover -s host/tests
+
+      - name: Build .deb
+        env:
+          DEB_MAINTAINER: CoB12426 <CoB12426@users.noreply.github.com>
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            packaging/ubuntu/build-deb.sh "$GITHUB_REF_NAME"
+          else
+            packaging/ubuntu/build-deb.sh
+          fi
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voidfm-host-deb
+          path: dist/*.deb
