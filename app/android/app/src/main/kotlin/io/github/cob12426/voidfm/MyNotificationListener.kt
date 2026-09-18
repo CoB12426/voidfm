@@ -1,4 +1,4 @@
-package com.example.voidfm
+package io.github.cob12426.voidfm
 
 import android.app.Notification
 import android.graphics.Bitmap
@@ -42,7 +42,7 @@ class MyNotificationListener : NotificationListenerService() {
         /** 次トラック用 EventSink（com.example.mydj/next_track） */
         var nextTrackSink: EventChannel.EventSink? = null
 
-        /** 現在曲の終端直前イベント用 EventSink（com.example.voidfm/track_ending） */
+        /** 現在曲の終端直前イベント用 EventSink（io.github.cob12426.voidfm/track_ending） */
         var trackEndingSink: EventChannel.EventSink? = null
 
         /**

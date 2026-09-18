@@ -6,18 +6,18 @@ import '../models/track_info.dart';
 /// Flutter へ届くイベントを受け取るサービス。
 ///
 /// ─ ストリーム ─
-///   trackStream     : 現在トラック変更イベント (com.example.voidfm/notification)
-///   nextTrackStream : キューから取得した次トラック更新イベント (com.example.voidfm/next_track)
+///   trackStream     : 現在トラック変更イベント (io.github.cob12426.voidfm/notification)
+///   nextTrackStream : キューから取得した次トラック更新イベント (io.github.cob12426.voidfm/next_track)
 ///                     MediaController.Callback が onMetadataChanged /
 ///                     onPlaybackStateChanged / onQueueChanged を検知するたびに流れる。
 class NotificationService {
-  static const _trackChannel = EventChannel('com.example.voidfm/notification');
+  static const _trackChannel = EventChannel('io.github.cob12426.voidfm/notification');
   static const _nextTrackChannel =
-      EventChannel('com.example.voidfm/next_track');
+      EventChannel('io.github.cob12426.voidfm/next_track');
   static const _trackEndingChannel =
-      EventChannel('com.example.voidfm/track_ending');
+      EventChannel('io.github.cob12426.voidfm/track_ending');
   static const _methodChannel =
-      MethodChannel('com.example.voidfm/media_session');
+      MethodChannel('io.github.cob12426.voidfm/media_session');
 
   Stream<TrackInfo>? _trackStream;
   Stream<Map<String, dynamic>>? _rawNextTrackStream;

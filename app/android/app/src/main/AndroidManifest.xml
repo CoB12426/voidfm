@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.voidfm">
+    package="io.github.cob12426.voidfm">
 
     <!-- Remote host (HTTP) and just_audio's local 127.0.0.1 playback proxy. -->
     <uses-permission android:name="android.permission.INTERNET" />

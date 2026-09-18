@@ -9,7 +9,7 @@ import 'supertonic_service.dart';
 /// 音声は Supertonic 3 で生成し、HTTP 通信は行わない。
 class LocalDjClient extends DjBackend {
   static const MethodChannel _channel =
-      MethodChannel('com.example.voidfm/local_dj');
+      MethodChannel('io.github.cob12426.voidfm/local_dj');
 
   static Future<Map<Object?, Object?>> status() async =>
       (await _channel.invokeMapMethod<Object?, Object?>('status')) ?? {};

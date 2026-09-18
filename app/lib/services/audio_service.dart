@@ -13,7 +13,7 @@ import 'package:just_audio/just_audio.dart';
 ///   3. resumeMusic() — 音楽プレイヤーを再開
 class AudioService {
   static const _mediaChannel =
-      MethodChannel('com.example.voidfm/media_session');
+      MethodChannel('io.github.cob12426.voidfm/media_session');
 
   // シングルトンで管理
   static final AudioService _instance = AudioService._internal();

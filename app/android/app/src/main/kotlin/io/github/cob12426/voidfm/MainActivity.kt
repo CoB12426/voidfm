@@ -1,4 +1,4 @@
-package com.example.voidfm
+package io.github.cob12426.voidfm
 
 import android.content.ComponentName
 import android.content.Intent
@@ -22,16 +22,16 @@ import kotlinx.coroutines.launch
 class MainActivity : FlutterActivity() {
 
     companion object {
-        private const val NOTIFICATION_CHANNEL = "com.example.voidfm/notification"
-        private const val NEXT_TRACK_CHANNEL   = "com.example.voidfm/next_track"
-        private const val TRACK_ENDING_CHANNEL = "com.example.voidfm/track_ending"
-        private const val AUDIO_FOCUS_CHANNEL  = "com.example.voidfm/audio_focus"
-        private const val MEDIA_SESSION_CHANNEL = "com.example.voidfm/media_session"
+        private const val NOTIFICATION_CHANNEL = "io.github.cob12426.voidfm/notification"
+        private const val NEXT_TRACK_CHANNEL   = "io.github.cob12426.voidfm/next_track"
+        private const val TRACK_ENDING_CHANNEL = "io.github.cob12426.voidfm/track_ending"
+        private const val AUDIO_FOCUS_CHANNEL  = "io.github.cob12426.voidfm/audio_focus"
+        private const val MEDIA_SESSION_CHANNEL = "io.github.cob12426.voidfm/media_session"
     }
 
     private lateinit var audioFocusManager: AudioFocusManager
     private val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private lateinit var localDj: com.example.voidfm.LocalDjEngine
+    private lateinit var localDj: io.github.cob12426.voidfm.LocalDjEngine
 
     @Deprecated("Android callback for the document picker")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -49,8 +49,8 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
 
         audioFocusManager = AudioFocusManager(this)
-        localDj = com.example.voidfm.LocalDjEngine(this)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.example.voidfm/local_dj")
+        localDj = io.github.cob12426.voidfm.LocalDjEngine(this)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "io.github.cob12426.voidfm/local_dj")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "status" -> result.success(mapOf(

@@ -14,7 +14,7 @@ if (keystorePropertiesFile.exists()) {
 def releaseStoreFile = keystoreProperties["storeFile"] ?: System.getenv("VOIDFM_KEYSTORE_PATH")
 
 android {
-    namespace "com.example.voidfm"
+    namespace "io.github.cob12426.voidfm"
     compileSdk flutter.compileSdkVersion
     ndkVersion flutter.ndkVersion
 
@@ -28,7 +28,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.example.voidfm"
+        applicationId "io.github.cob12426.voidfm"
         minSdk 26
         targetSdk flutter.targetSdkVersion
         versionCode flutter.versionCode

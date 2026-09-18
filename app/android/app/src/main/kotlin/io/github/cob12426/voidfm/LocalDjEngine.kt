@@ -1,4 +1,4 @@
-package com.example.voidfm
+package io.github.cob12426.voidfm
 
 import android.app.Activity
 import android.content.Intent
