@@ -1,2 +1,1 @@
-MusicBrainzの導入で楽曲情報の精度向上
-
+Improve track metadata accuracy by integrating MusicBrainz
