@@ -5,7 +5,11 @@ There are bugs/glitches exist. \
 Tested only on Google Pixel 9 for client and RTX3060 12GB for host (local llm with llama.cpp and TTS generation)
 
 
-https://github.com/user-attachments/assets/b3248831-3243-49ec-8531-66829b471580
+
+
+https://github.com/user-attachments/assets/2c893c0c-9bbf-4f0b-af7d-945cfad3ba87
+
+
 
 
 The Android app generates DJ talk in one of two ways, selectable in **Settings → DJ ENGINE**:
