@@ -26,6 +26,9 @@ app/.flutter-plugins-dependencies
 app/android/.gradle/
 app/android/.kotlin/
 app/android/local.properties
+app/android/key.properties
+*.jks
+*.keystore
 app/android/app/debug/
 app/android/app/profile/
 app/android/app/release/

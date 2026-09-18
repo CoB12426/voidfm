@@ -34,7 +34,22 @@ jobs:
       - name: Test
         run: flutter test
 
+      - name: Decode release keystore
+        env:
+          VOIDFM_KEYSTORE_BASE64: ${{ secrets.VOIDFM_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$VOIDFM_KEYSTORE_BASE64" ]; then
+            echo "$VOIDFM_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/voidfm-release.jks"
+            echo "VOIDFM_KEYSTORE_PATH=$RUNNER_TEMP/voidfm-release.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::VOIDFM_KEYSTORE_BASE64 is not set; the APK will be signed with a debug key."
+          fi
+
       - name: Build release APK
+        env:
+          VOIDFM_KEYSTORE_PASSWORD: ${{ secrets.VOIDFM_KEYSTORE_PASSWORD }}
+          VOIDFM_KEY_ALIAS: ${{ secrets.VOIDFM_KEY_ALIAS }}
+          VOIDFM_KEY_PASSWORD: ${{ secrets.VOIDFM_KEY_PASSWORD }}
         run: flutter build apk --release
 
       - name: Upload APK artifact
