@@ -8,6 +8,7 @@ from typing import Optional
 
 from models.schemas import TrackInfo
 import services.program_memory as program_memory
+import services.web_context as web_context
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ _PERSONALITIES: dict[str, dict] = {
         "style": "Natural, present, and easy to follow. Speak in plain conversational sentences, like you are riding "
                  "the last seconds of a segue. Keep the listener's focus on the song coming up.",
         "joke_rate": 0.30,
-        "emotions": "[laugh]\n  [breath]",
+        "emotions": "[laugh]\n  [chuckle]",
         "house_rules": (
             "- Sound live and relaxed: one clear thought, no essay shape.\n"
             "- Use everyday radio phrasing, not polished copy or big metaphors.\n"
@@ -51,7 +52,7 @@ _PERSONALITIES: dict[str, dict] = {
         "style": "Bright, punchy, and rhythmic. Keep the pace moving with short spoken lines, but stay warm and human. "
                  "Hype the track without sounding like an ad.",
         "joke_rate": 0.25,
-        "emotions": "[gasp]\n  [breath]",
+        "emotions": "[gasp]\n  [chuckle]",
         "house_rules": (
             "- Open with momentum, like the music is already pushing you forward.\n"
             "- Keep sentences short enough to say cleanly over a bed.\n"
@@ -63,7 +64,7 @@ _PERSONALITIES: dict[str, dict] = {
         "style": "Soft, unhurried, and intimate. Speak like the studio lights are low and the listener is close by. "
                  "Small dry humor is fine, but keep it simple.",
         "joke_rate": 0.25,
-        "emotions": "[sigh]\n  [laugh]",
+        "emotions": "[sigh]\n  [chuckle]",
         "house_rules": (
             "- Let the air breathe, but do not drift into a monologue.\n"
             "- Use small observations, not elaborate stories.\n"
@@ -75,7 +76,7 @@ _PERSONALITIES: dict[str, dict] = {
         "style": "Smart but conversational. Offer one simple musical or cultural note when it fits, then get back to "
                  "the feeling of the next track. Never lecture.",
         "joke_rate": 0.15,
-        "emotions": "[sigh]",
+        "emotions": "[sigh]\n  [clear throat]",
         "house_rules": (
             "- One insight is enough; make it sound spoken, not written.\n"
             "- If you mention a music fact, keep it true, brief, and relevant.\n"
@@ -87,7 +88,7 @@ _PERSONALITIES: dict[str, dict] = {
         "style": "Light, quick, and playful. Use easy radio jokes, small self-deprecation, or one odd observation. "
                  "The joke should feel tossed off on-air, not like a stand-up routine.",
         "joke_rate": 0.70,
-        "emotions": "[laugh]\n  [cough]",
+        "emotions": "[laugh]\n  [cough]\n  [groan]",
         "house_rules": (
             "- Keep the joke simple enough to understand while half-listening.\n"
             "- Use one funny image or aside, then move on.\n"
@@ -111,9 +112,12 @@ def _emotion_guide(personality_cfg: dict) -> str:
     return (
         f"You may use these supported TTS tags (1–2 max, use sparingly):\n"
         f"  {personality_cfg['emotions']}\n"
-        "Supported tags are exactly: [sigh], [gasp], [cough], [laugh], [whisper], [breath].\n"
-        "Never invent or output any other bracketed performance tag.\n"
-        "Example: \"What a track! [laugh] Let's keep it going.\""
+        "Supported tags are exactly: [clear throat], [sigh], [shush], [cough], [groan], [sniff], [gasp], "
+        "[chuckle], [laugh].\n"
+        "Never invent or output any other bracketed tag (for example [breath], [whisper], [excited] are NOT supported "
+        "and would be read aloud).\n"
+        "Place a tag right where the sound should happen, after a short phrase.\n"
+        "Example: \"What a track! [chuckle] Let's keep it going.\""
     )
 
 
@@ -314,6 +318,41 @@ def _track_label(t: TrackInfo) -> str:
 # プロンプト構築
 # ---------------------------------------------------------------------------
 
+async def _maybe_fetch_artist_facts(
+    cfg: dict,
+    next_track: TrackInfo,
+    previous_track: Optional[TrackInfo],
+) -> str:
+    """一定確率でだけアーティスト情報を検索する。外れた回は通常の雑談・ジョーク。"""
+    ws = web_context.settings(cfg)
+    if not ws["enabled"] or random.random() >= ws["rate"]:
+        return ""
+    # 同じ曲が続く（次曲が不明）場合は、曲名を出さない構成なので対象外
+    if previous_track and (previous_track.title, previous_track.artist) == (
+        next_track.title, next_track.artist,
+    ):
+        return ""
+    artist = next_track.artist
+    if not web_context.is_eligible(artist):
+        return ""
+    facts = await web_context.fetch_artist_facts(artist, timeout=ws["timeout"])
+    if facts:
+        web_context.mark_used(artist)
+        logger.info("[web] artist facts attached for %r", artist)
+    return facts
+
+
+def _artist_spotlight_bit(track: TrackInfo, facts: str) -> tuple[str, str]:
+    return (
+        "artist spotlight",
+        f"Share ONE interesting, true detail about {track.artist} taken ONLY from the reference notes below, "
+        "like a DJ who just read it. Prefer a recent headline if one is clearly about this artist; otherwise use the "
+        "background. If the notes look unrelated to this artist or uncertain, skip the fact and just intro the track. "
+        "Never invent details, dates, or quotes, and do not read headlines verbatim.\n"
+        f"[Reference notes for {track.artist}]\n{facts}",
+    )
+
+
 async def build_prompt(
     next_track: TrackInfo,
     previous_track: Optional[TrackInfo],
@@ -333,9 +372,12 @@ async def build_prompt(
 
     length_instruction = _LENGTH_INSTRUCTIONS.get(talk_length, _LENGTH_INSTRUCTIONS["medium"])
 
+    artist_facts = await _maybe_fetch_artist_facts(cfg, next_track, previous_track)
+
     prompt = _build(
         context, pcfg, next_track, previous_track,
         length_instruction, is_mid_song, username, dj_name, custom_prompt, track_history,
+        artist_facts,
     )
 
     logger.debug(
@@ -356,6 +398,7 @@ def _build(
     dj_name: str | None,
     custom_prompt: str | None,
     track_history: list | None,
+    artist_facts: str = "",
 ) -> str:
     persona = pcfg["persona"]
     style   = pcfg["style"]
@@ -369,8 +412,12 @@ def _build(
 
     output_instruction = _OUTPUT_INSTRUCTION
 
-    if is_mid_song:
+    if artist_facts:
+        bit_name, bit_instruction = _artist_spotlight_bit(next_track, artist_facts)
+    else:
         bit_name, bit_instruction = _pick_airbreak_bit()
+
+    if is_mid_song:
         return (
             f"{context}\n\n"
             f"You are {persona}. {style}\n"
@@ -403,8 +450,6 @@ def _build(
         next_line = "■ Next track (about to play): Another track from the queue\n"
     else:
         next_line = f"■ Next track (about to play): {_track_label(next_track)}\n"
-
-    bit_name, bit_instruction = _pick_airbreak_bit()
 
     if previous_track and not same_track:
         structure = (

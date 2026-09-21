@@ -40,20 +40,38 @@ _CLOSING_PATTERNS: tuple[str, ...] = (
     r"\buntil\s+next\s+time\b",
 )
 
+# Chatterbox Turbo の公式 paralinguistic tags。語彙にないタグ（[breath] など）は
+# そのまま読み上げられてしまうため、ここに無いものは必ず除去する。
 _SUPPORTED_TTS_TAGS: frozenset[str] = frozenset({
+    "clear throat",
     "sigh",
-    "gasp",
+    "shush",
     "cough",
+    "groan",
+    "sniff",
+    "gasp",
+    "chuckle",
     "laugh",
-    "whisper",
-    "breath",
 })
+# LLM が出しがちだが未対応のタグを、近い対応タグへ置き換える。
+_TTS_TAG_ALIASES: dict[str, str] = {
+    "breath": "sigh",
+    "breathe": "sigh",
+    "inhale": "sigh",
+    "exhale": "sigh",
+    "chuckles": "chuckle",
+    "laughs": "laugh",
+    "laughing": "laugh",
+    "sighs": "sigh",
+    "clears throat": "clear throat",
+}
 _TTS_TAG_PATTERN = re.compile(r"\[([A-Za-z][A-Za-z _-]{0,31})\]")
 
 
 def _filter_tts_tags(text: str) -> str:
     def replace(match: re.Match[str]) -> str:
-        tag = match.group(1).strip().lower()
+        tag = re.sub(r"[\s_-]+", " ", match.group(1)).strip().lower()
+        tag = _TTS_TAG_ALIASES.get(tag, tag)
         return f"[{tag}]" if tag in _SUPPORTED_TTS_TAGS else ""
 
     return re.sub(r"\s+", " ", _TTS_TAG_PATTERN.sub(replace, text)).strip()

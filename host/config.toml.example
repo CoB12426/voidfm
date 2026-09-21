@@ -49,3 +49,10 @@ cfg_weight = 0.5
 
 [dj]
 default_talk_length = "medium"   # short / medium / long
+
+# アーティスト情報トーク（無料・APIキー不要: Google News RSS + Wikipedia）
+# 再生中のアーティスト名が外部サービスへ送信されます。
+[dj.web_search]
+enabled = false
+rate = 0.3        # このトーク回数に1回程度がアーティスト情報。残りは雑談・ジョーク
+timeout = 3.0     # 検索のタイムアウト秒。超えたら検索なしで通常トーク

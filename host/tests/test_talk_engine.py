@@ -30,6 +30,14 @@ class TalkEngineTest(unittest.TestCase):
         text = talk_engine.postprocess_talk_text("That one woke up the mixer. [Laugh]")
         self.assertEqual(text, "That one woke up the mixer. [laugh].")
 
+    def test_postprocess_maps_breath_and_drops_whisper(self) -> None:
+        text = talk_engine.postprocess_talk_text("Easy now [breath] here we go [whisper] softly.")
+        self.assertEqual(text, "Easy now [sigh] here we go softly.")
+
+    def test_postprocess_keeps_multiword_tag(self) -> None:
+        text = talk_engine.postprocess_talk_text("Ahem [Clear Throat] welcome back.")
+        self.assertEqual(text, "Ahem [clear throat] welcome back.")
+
     def test_clamp_talk_length_prefers_sentence_boundary(self) -> None:
         source = "First sentence. " + ("Second sentence is too long " * 20)
         text = talk_engine.clamp_talk_length(source, "short")
@@ -163,7 +171,7 @@ class PersonalityTest(unittest.TestCase):
             self.assertTrue(cfg["house_rules"].strip(), f"Empty house_rules for personality: {name}")
 
     def test_each_personality_uses_only_supported_tts_tags(self) -> None:
-        supported = {"[sigh]", "[gasp]", "[cough]", "[laugh]", "[whisper]", "[breath]"}
+        supported = {f"[{t}]" for t in talk_engine._SUPPORTED_TTS_TAGS}
         for name, cfg in prompt_builder._PERSONALITIES.items():
             tags = [
                 token.strip()
@@ -202,3 +210,34 @@ class LanguageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WebContextPromptTest(unittest.TestCase):
+    def _build(self, facts: str, mid: bool = False) -> str:
+        return prompt_builder._build(
+            context="ctx",
+            pcfg=prompt_builder._PERSONALITIES["standard"],
+            next_track=TrackInfo(title="Next", artist="Artist"),
+            previous_track=TrackInfo(title="Prev", artist="Other"),
+            length_instruction="Keep it short.",
+            is_mid_song=mid,
+            username=None,
+            dj_name=None,
+            custom_prompt=None,
+            track_history=None,
+            artist_facts=facts,
+        )
+
+    def test_facts_become_artist_spotlight(self) -> None:
+        for mid in (False, True):
+            prompt = self._build("Recent headlines:\n- Artist announces tour", mid)
+            self.assertIn("artist spotlight", prompt)
+            self.assertIn("Artist announces tour", prompt)
+
+    def test_no_facts_uses_regular_bit(self) -> None:
+        self.assertNotIn("artist spotlight", self._build(""))
+
+    def test_settings_default_disabled(self) -> None:
+        import services.web_context as web_context
+        self.assertFalse(web_context.settings({})["enabled"])
+        self.assertTrue(web_context.settings({"dj": {"web_search": {"enabled": True}}})["enabled"])
