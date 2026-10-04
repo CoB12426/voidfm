@@ -6,12 +6,6 @@ Tested only on Google Pixel 9 for client and RTX3060 12GB for host (local llm wi
 
 
 
-
-https://github.com/user-attachments/assets/2c893c0c-9bbf-4f0b-af7d-945cfad3ba87
-
-
-
-
 The Android app generates DJ talk in one of two ways, selectable in **Settings → DJ ENGINE**:
 
 | Mode | Where talk is generated | Needs |
